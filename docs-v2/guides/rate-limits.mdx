@@ -24,9 +24,11 @@ This configuration enables automatic retries on receiving a `429` status code, w
 - Nango [syncs](/guides/syncs/overview) can run for up to 24 hours, allowing retries to occur within this window (note that action and webhook scripts have shorter lifespans, see [Resource Limits](/guides/resource-limits)).
 - It works for APIs, without requiring any API-specific configurations
 
+Find detail about HTTP request retries in the [reference](/reference/scripts#http-request-retries).
+
 ## Strategy 2: Leverage rate-limit headers
 
-Most of the time, the 1st strategy is sufficient to handle rate limits. 
+Most of the time, the 1st strategy is sufficient to handle rate limits.
 
 For APIs with stringent limits, Nango provides a more refined and customized approach by automatically parsing API-specific rate-limit headers from responses and scheduling retries only after the rate limit period has reset:
 

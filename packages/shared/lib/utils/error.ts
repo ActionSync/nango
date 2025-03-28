@@ -1,17 +1,35 @@
 import { stringifyError } from '@nangohq/utils';
+
 import type { JsonValue } from 'type-fest';
 
-export class NangoError extends Error {
-    public readonly status: number = 500;
-    public readonly type: string;
-    public payload: Record<string, unknown>;
+export class NangoInternalError extends Error {
+    public type: string;
+
+    // -- Legacy stuff to remove
+    public status: number = 500;
+    public payload: Record<string, unknown> = {};
+
+    constructor(type: string, options?: { cause?: unknown }) {
+        super(type, options);
+        this.type = type;
+    }
+
+    // For compat with NangoError
+    // If we end up needing it we could pass use options as payload
+    public setPayload(payload: any) {
+        this.payload = payload;
+    }
+}
+
+export class AuthCredentialsError extends NangoInternalError {}
+
+export class NangoError extends NangoInternalError {
     public additional_properties?: Record<string, JsonValue> | undefined = undefined;
     public override readonly message: string;
 
     constructor(type: string, payload = {}, status?: number, additional_properties?: Record<string, JsonValue>) {
-        super();
+        super(type);
 
-        this.type = type;
         this.payload = payload;
         this.additional_properties = additional_properties;
 
@@ -284,12 +302,6 @@ export class NangoError extends Error {
                 }
                 break;
 
-            case 'missing_base_api_url':
-                this.status = 400;
-                this.message =
-                    'The proxy is either not supported for this provider or it does not have a default base URL configured (use the baseUrlOverride config param to specify a base URL).';
-                break;
-
             case 'provider_config_edit_not_allowed':
                 this.status = 400;
                 this.message = 'Provider configuration cannot be edited for API key based authentication.';
@@ -374,6 +386,11 @@ export class NangoError extends Error {
                 this.message = `Error fetching Two Step credentials`;
                 break;
 
+            case 'invalid_two_step_credentials_second_request':
+                this.status = 400;
+                this.message = `Error fetching Two Step credentials in the second request`;
+                break;
+
             case 'signature_token_generation_error':
                 this.status = 400;
                 this.message = `Error generating signature based token`;
@@ -414,11 +431,6 @@ export class NangoError extends Error {
 
             case 'on_event_script_failure':
                 this.message = `The on-event script failed with an error: ${stringifyError(this.payload)}`;
-                break;
-
-            case 'pass_through_error':
-                this.status = 400;
-                this.message = JSON.stringify(this.payload);
                 break;
 
             case 'action_script_runtime_error':
@@ -472,9 +484,9 @@ export class NangoError extends Error {
                 this.message = 'Failed to validate a record in batchSave';
                 break;
 
-            case 'script_output_too_big':
+            case 'script_output_too_large':
                 this.status = 400;
-                this.message = 'Script output is too big';
+                this.message = 'Script output is too large';
                 break;
 
             case 'sync_job_update_failure':
@@ -512,15 +524,16 @@ export class NangoError extends Error {
                 this.message = `The script was aborted`;
                 break;
 
+            case 'concurrent_deployment':
+                this.status = 409;
+                this.message = 'A deployment is already in progress. Please wait for the current deployment to finish.';
+                break;
+
             default:
                 this.status = 500;
                 this.type = 'unhandled_' + type;
                 this.message = `An unhandled error of type '${type}' with payload '${JSON.stringify(this.payload)}' has occurred`;
         }
-    }
-
-    public setPayload(payload: any) {
-        this.payload = payload;
     }
 }
 

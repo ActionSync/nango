@@ -1,36 +1,40 @@
 import { expect, describe, it, beforeAll, afterAll, vi } from 'vitest';
 import { server } from './server.js';
 import fetch from 'node-fetch';
-import type { AuthCredentials, Sync, SyncConfig, Job as SyncJob } from '@nangohq/shared';
+import type { AuthCredentials, Sync, Job as SyncJob } from '@nangohq/shared';
 import db, { multipleMigrations } from '@nangohq/database';
 import {
     environmentService,
     connectionService,
     createSync,
     createSyncJob,
-    SyncType,
+    SyncJobsType,
     SyncStatus,
     accountService,
     configService,
     getProvider
 } from '@nangohq/shared';
 import { logContextGetter, migrateLogsMapping } from '@nangohq/logs';
+import type { UnencryptedRecordData } from '@nangohq/records';
 import { migrate as migrateRecords, records } from '@nangohq/records';
-import type { DBEnvironment, DBTeam } from '@nangohq/types';
+import type { DBEnvironment, DBSyncConfig, DBTeam } from '@nangohq/types';
+import { formatRecords } from '@nangohq/records/lib/helpers/format.js';
 
 const mockSecretKey = 'secret-key';
+
+interface testSeed {
+    account: DBTeam;
+    env: DBEnvironment;
+    activityLogId: string;
+    connection: Exclude<Awaited<ReturnType<typeof connectionService.getConnectionById>>, null>;
+    sync: Sync;
+    syncJob: SyncJob;
+}
 
 describe('Persist API', () => {
     const port = 3096;
     const serverUrl = `http://localhost:${port}`;
-    let seed: {
-        account: DBTeam;
-        env: DBEnvironment;
-        activityLogId: string;
-        connection: Exclude<Awaited<ReturnType<typeof connectionService.getConnectionById>>, null>;
-        sync: Sync;
-        syncJob: SyncJob;
-    };
+    let seed: testSeed;
 
     beforeAll(async () => {
         await multipleMigrations();
@@ -60,7 +64,10 @@ describe('Persist API', () => {
     it('should log', async () => {
         const response = await fetch(`${serverUrl}/environment/${seed.env.id}/log`, {
             method: 'POST',
-            body: JSON.stringify({ activityLogId: seed.activityLogId, level: 'info', msg: 'Hello, world!' }),
+            body: JSON.stringify({
+                activityLogId: seed.activityLogId,
+                log: { type: 'log', level: 'info', message: 'Hello, world!', createdAt: new Date().toISOString() }
+            }),
             headers: {
                 Authorization: `Bearer ${mockSecretKey}`,
                 'Content-Type': 'application/json'
@@ -70,14 +77,9 @@ describe('Persist API', () => {
     });
 
     it('should refuse huge log', async () => {
-        const msg: number[] = [];
-
-        for (let index = 0; index < 150_000; index++) {
-            msg.push(index);
-        }
         const response = await fetch(`${serverUrl}/environment/${seed.env.id}/log`, {
             method: 'POST',
-            body: JSON.stringify({ activityLogId: seed.activityLogId, level: 'info', msg: msg.join(',') }),
+            body: JSON.stringify({ activityLogId: seed.activityLogId, log: { level: 'info', message: 'a'.repeat(150_000) } }),
             headers: {
                 Authorization: `Bearer ${mockSecretKey}`,
                 'Content-Type': 'application/json'
@@ -272,28 +274,15 @@ describe('Persist API', () => {
         it('should return first cursor', async () => {
             const model = 'ModelFirstCursor';
 
-            // Save records
-            await fetch(`${serverUrl}/environment/${seed.env.id}/connection/${seed.connection.id}/sync/${seed.sync.id}/job/${seed.syncJob.id}/records`, {
-                method: 'POST',
-                body: JSON.stringify({
-                    model,
-                    records: [
-                        { id: 1, name: 'r1' },
-                        { id: 2, name: 'r2' },
-                        { id: 3, name: 'r3' }
-                    ],
-                    providerConfigKey: seed.connection.provider_config_key,
-                    connectionId: seed.connection.connection_id,
-                    activityLogId: seed.activityLogId
-                }),
-                headers: {
-                    Authorization: `Bearer ${mockSecretKey}`,
-                    'Content-Type': 'application/json'
-                }
-            });
+            await insertRecords(seed, model, [
+                { id: '1', name: 'r1' },
+                { id: '2', name: 'r2' },
+                { id: '3', name: 'r3' }
+            ]);
+
             const allRecords = (
                 await records.getRecords({
-                    connectionId: seed.connection.id!,
+                    connectionId: seed.connection.id,
                     model
                 })
             ).unwrap();
@@ -315,28 +304,15 @@ describe('Persist API', () => {
         it('should return last cursor', async () => {
             const model = 'ModelLastCursor';
 
-            // Save records
-            await fetch(`${serverUrl}/environment/${seed.env.id}/connection/${seed.connection.id}/sync/${seed.sync.id}/job/${seed.syncJob.id}/records`, {
-                method: 'POST',
-                body: JSON.stringify({
-                    model,
-                    records: [
-                        { id: 1, name: 'r1' },
-                        { id: 2, name: 'r2' },
-                        { id: 3, name: 'r3' }
-                    ],
-                    providerConfigKey: seed.connection.provider_config_key,
-                    connectionId: seed.connection.connection_id,
-                    activityLogId: seed.activityLogId
-                }),
-                headers: {
-                    Authorization: `Bearer ${mockSecretKey}`,
-                    'Content-Type': 'application/json'
-                }
-            });
+            await insertRecords(seed, model, [
+                { id: '1', name: 'r1' },
+                { id: '2', name: 'r2' },
+                { id: '3', name: 'r3' }
+            ]);
+
             const allRecords = (
                 await records.getRecords({
-                    connectionId: seed.connection.id!,
+                    connectionId: seed.connection.id,
                     model
                 })
             ).unwrap();
@@ -353,6 +329,72 @@ describe('Persist API', () => {
             expect(response.status).toEqual(200);
             expect(await response.json()).toStrictEqual({
                 cursor: lastRecord?._nango_metadata.cursor
+            });
+        });
+    });
+
+    describe('getRecords', () => {
+        it('should 400 if no model given', async () => {
+            const response = await fetch(`${serverUrl}/environment/${seed.env.id}/connection/${seed.connection.id}/records`, {
+                method: 'GET',
+                headers: {
+                    Authorization: `Bearer ${mockSecretKey}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            expect(response.status).toEqual(400);
+        });
+
+        it('should return records for a model', async () => {
+            const model = 'GetRecordsModel';
+            const records = [
+                { id: '1', name: 'new1' },
+                { id: '2', name: 'new2' }
+            ];
+            await insertRecords(seed, model, records);
+
+            const response = await fetch(`${serverUrl}/environment/${seed.env.id}/connection/${seed.connection.id}/records?model=${model}`, {
+                method: 'GET',
+                headers: {
+                    Authorization: `Bearer ${mockSecretKey}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            expect(response.status).toEqual(200);
+            const body = await response.json();
+            expect(body).toMatchObject({
+                records: expect.arrayContaining([expect.objectContaining(records[0]), expect.objectContaining(records[1])]),
+                next_cursor: null
+            });
+        });
+
+        it('should filter records by id', async () => {
+            const model = 'GetRecordsFilteredModel';
+            const records = [
+                { id: '1', name: 'new1' },
+                { id: '2', name: 'new2' },
+                { id: '3', name: 'new3' }
+            ];
+            await insertRecords(seed, model, records);
+
+            const response = await fetch(
+                `${serverUrl}/environment/${seed.env.id}/connection/${seed.connection.id}/records?model=${model}&externalIds=1&externalIds=3`,
+                {
+                    method: 'GET',
+                    headers: {
+                        Authorization: `Bearer ${mockSecretKey}`,
+                        'Content-Type': 'application/json'
+                    }
+                }
+            );
+
+            expect(response.status).toEqual(200);
+            const body = await response.json();
+            expect(body).toMatchObject({
+                records: expect.arrayContaining([expect.objectContaining(records[0]), expect.objectContaining(records[2])]),
+                next_cursor: null
             });
         });
     });
@@ -387,13 +429,13 @@ const initDb = async () => {
     if (!providerConfig) throw new Error('Provider config not created');
 
     const [syncConfig] = await db.knex
-        .from<SyncConfig>(`_nango_sync_configs`)
+        .from<DBSyncConfig>(`_nango_sync_configs`)
         .insert({
             environment_id: env.id,
             sync_name: Math.random().toString(36).substring(7),
             type: 'sync',
             file_location: 'file_location',
-            nango_config_id: providerConfig.id,
+            nango_config_id: providerConfig.id!,
             version: '1',
             active: true,
             runs: 'runs',
@@ -404,8 +446,9 @@ const initDb = async () => {
             created_at: now,
             updated_at: now,
             models: ['model'],
-            model_schema: []
-        } as SyncConfig)
+            model_schema: [],
+            sync_type: 'full'
+        })
         .returning('*');
     if (!syncConfig) throw new Error('Sync config not created');
 
@@ -424,12 +467,12 @@ const initDb = async () => {
     const connection = await connectionService.getConnectionById(connectionId);
     if (!connection) throw new Error('Connection not found');
 
-    const sync = await createSync(connectionId, syncConfig);
+    const sync = await createSync({ connectionId, syncConfig, variant: 'base' });
     if (!sync?.id) throw new Error('Sync not created');
 
     const syncJob = await createSyncJob({
         sync_id: sync.id,
-        type: SyncType.FULL,
+        type: SyncJobsType.FULL,
         status: SyncStatus.RUNNING,
         job_id: `job-test`,
         nangoConnection: connection
@@ -450,4 +493,21 @@ const initDb = async () => {
 
 const clearDb = async () => {
     await db.knex.raw(`DROP SCHEMA nango CASCADE`);
+};
+
+const insertRecords = async (seed: testSeed, model: string, toInsert: UnencryptedRecordData[]) => {
+    const formatted = formatRecords({
+        data: toInsert,
+        connectionId: seed.connection.id,
+        model,
+        syncId: seed.sync.id,
+        syncJobId: seed.syncJob.id
+    }).unwrap();
+
+    await records.upsert({
+        connectionId: seed.connection.id,
+        environmentId: seed.env.id,
+        model,
+        records: formatted
+    });
 };

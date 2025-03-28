@@ -12,6 +12,9 @@ export const ENVS = z.object({
     VITEST: z.coerce.boolean().default(false),
     TZ: z.string().default('UTC'),
 
+    // Dockerfile
+    GIT_HASH: z.string().optional(),
+
     // Auth
     WORKOS_API_KEY: z.string().optional(),
     WORKOS_CLIENT_ID: z.string().optional(),
@@ -32,6 +35,22 @@ export const ENVS = z.object({
     NANGO_PUBLIC_CONNECT_URL: z.string().url().optional(),
     NANGO_CONNECT_UI_PORT: z.coerce.number().optional().default(3009),
 
+    // Crons
+    CRON_EXPORT_USAGE_METRICS_MINUTES: z.coerce.number().optional().default(5),
+    CRON_TIMEOUT_LOGS_MINUTES: z.coerce.number().optional().default(10),
+    CRON_DELETE_OLD_JOBS_LIMIT: z.coerce.number().optional().default(1000),
+    CRON_DELETE_OLD_DATA_EVERY_MIN: z.coerce.number().optional().default(10),
+    CRON_DELETE_OLD_JOBS_MAX_DAYS: z.coerce.number().optional().default(31),
+    CRON_DELETE_OLD_CONNECT_SESSION_MAX_DAYS: z.coerce.number().optional().default(31),
+    CRON_DELETE_OLD_PRIVATE_KEYS_MAX_DAYS: z.coerce.number().optional().default(31),
+    CRON_DELETE_OLD_OAUTH_SESSION_MAX_DAYS: z.coerce.number().optional().default(2),
+    CRON_DELETE_OLD_INVITATIONS_MAX_DAYS: z.coerce.number().optional().default(2),
+    CRON_DELETE_OLD_CONFIGS_MAX_DAYS: z.coerce.number().optional().default(31),
+    CRON_DELETE_OLD_SYNC_CONFIGS_MAX_DAYS: z.coerce.number().optional().default(31),
+    CRON_DELETE_OLD_CONNECTIONS_MAX_DAYS: z.coerce.number().optional().default(31),
+    CRON_REFRESH_CONNECTIONS_EVERY_MIN: z.coerce.number().optional().default(10),
+    CRON_REFRESH_CONNECTIONS_LIMIT: z.coerce.number().optional().default(100),
+
     // Persist
     PERSIST_SERVICE_URL: z.string().url().optional(),
     NANGO_PERSIST_PORT: z.coerce.number().optional().default(3007),
@@ -41,6 +60,7 @@ export const ENVS = z.object({
     NANGO_ORCHESTRATOR_PORT: z.coerce.number().optional().default(3008),
     ORCHESTRATOR_DATABASE_URL: z.string().url().optional(),
     ORCHESTRATOR_DATABASE_SCHEMA: z.string().optional().default('nango_scheduler'),
+    ORCHESTRATOR_DB_POOL_MAX: z.coerce.number().optional().default(50),
 
     // Jobs
     JOBS_SERVICE_URL: z.string().url().optional().default('http://localhost:3005'),
@@ -56,8 +76,10 @@ export const ENVS = z.object({
     IDLE_MAX_DURATION_MS: z.coerce.number().default(0),
     RUNNER_NODE_ID: z.coerce.number().optional(),
     RUNNER_URL: z.string().url().optional(),
+    RUNNER_MEMORY_WARNING_THRESHOLD: z.coerce.number().optional().default(85),
 
     // FLEET
+    RUNNERS_DATABASE_URL: z.string().url().optional(),
     FLEET_TIMEOUT_PENDING_MS: z.coerce
         .number()
         .optional()
@@ -104,6 +126,7 @@ export const ENVS = z.object({
         .number()
         .optional()
         .default(2 * 60 * 1000), // 2 minutes
+    FLEET_DB_POOL_MAX: z.coerce.number().optional().default(5),
 
     // --- Third parties
     // AWS
@@ -126,6 +149,7 @@ export const ENVS = z.object({
     NANGO_LOGS_ES_PWD: z.string().optional(),
     NANGO_LOGS_ENABLED: bool,
     NANGO_LOGS_ES_INDEX: z.string().optional(),
+    NANGO_LOGS_ES_SHARD_PER_DAY: z.coerce.number().optional().default(1),
 
     // Mailgun
     MAILGUN_API_KEY: z.string().optional(),
@@ -133,6 +157,7 @@ export const ENVS = z.object({
 
     // Postgres
     NANGO_DATABASE_URL: z.string().url().optional(),
+    NANGO_DB_READ_URL: z.string().url().optional(),
     NANGO_DB_HOST: z.string().optional().default('localhost'),
     NANGO_DB_PORT: z.coerce.number().optional().default(5432),
     NANGO_DB_USER: z.string().optional().default('nango'),
@@ -156,6 +181,7 @@ export const ENVS = z.object({
 
     // Records
     RECORDS_DATABASE_URL: z.string().url().optional(),
+    RECORDS_DATABASE_READ_URL: z.string().url().optional(),
     RECORDS_DATABASE_SCHEMA: z.string().optional().default('nango_records'),
 
     // Redis
@@ -170,14 +196,17 @@ export const ENVS = z.object({
 
     // Sentry
     PUBLIC_SENTRY_KEY: z.string().optional(),
+    SENTRY_DSN: z.string().url().optional(),
 
     // Slack
-    NANGO_ADMIN_CONNECTION_ID: z.string().optional(),
     NANGO_SLACK_INTEGRATION_KEY: z.string().optional(),
     NANGO_ADMIN_UUID: z.string().uuid().optional(),
 
     // Internal API
     NANGO_INTERNAL_API_KEY: z.string().optional(),
+
+    // LIMITS
+    MAX_SYNCS_PER_CONNECTION: z.coerce.number().optional().default(100),
 
     // ----- Others
     SERVER_RUN_MODE: z.enum(['DOCKERIZED', '']).optional(),

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { asyncWrapper } from '../../../../utils/asyncWrapper.js';
-import type { PostPreBuiltDeploy } from '@nangohq/types';
+import type { NangoModel, PostPreBuiltDeploy } from '@nangohq/types';
 import { requireEmptyQuery, zodErrorToHTTP } from '@nangohq/utils';
 import { logContextGetter } from '@nangohq/logs';
 import { configService, connectionService, deployPreBuilt, flowService, syncManager } from '@nangohq/shared';
@@ -64,16 +64,21 @@ export const postPreBuiltDeploy = asyncWrapper<PostPreBuiltDeploy>(async (req, r
         account,
         configs: [
             {
-                ...flow,
+                endpoints: flow.endpoints,
+                name: flow.name,
+                runs: flow.runs || null,
+                attributes: flow.attributes,
+                auto_start: flow.auto_start,
                 public_route: body.provider,
                 provider: body.provider,
                 providerConfigKey: body.providerConfigKey,
-                model_schema: flow.models as unknown as any,
+                model_schema: flow.models as unknown as NangoModel[],
                 is_public: true,
                 type: flow.type!,
                 models: flow.returns,
                 track_deletes: flow.track_deletes === true,
-                metadata: { description: flow.description, scopes: flow.scopes }
+                metadata: { description: flow.description, scopes: flow.scopes },
+                input: flow.input
             }
         ],
         logContextGetter,
@@ -85,7 +90,7 @@ export const postPreBuiltDeploy = asyncWrapper<PostPreBuiltDeploy>(async (req, r
         return;
     }
 
-    await syncManager.triggerIfConnectionsExist(response.result, environmentId, logContextGetter, orchestrator);
+    await syncManager.triggerIfConnectionsExist({ flows: response.result, environmentId, logContextGetter, orchestrator });
 
     res.status(201).send({ data: { id: response.result[0]!.id! } });
 });

@@ -7,6 +7,7 @@ import { getOrchestrator } from '../../../utils/utils.js';
 import { logContextGetter } from '@nangohq/logs';
 import { connectionIdSchema, providerConfigKeySchema } from '../../../helpers/validation.js';
 import { preConnectionDeletion } from '../../../hooks/connection/on/connection-deleted.js';
+import { slackService } from '../../../services/slack.js';
 
 const validationQuery = z
     .object({
@@ -39,7 +40,6 @@ export const deletePublicConnection = asyncWrapper<DeletePublicConnection>(async
     const query: DeletePublicConnection['Querystring'] = valQuery.data;
 
     const { success, response: connection } = await connectionService.getConnection(params.connectionId, query.provider_config_key, environment.id);
-
     if (!success || !connection) {
         res.status(400).send({ error: { code: 'unknown_connection' } });
         return;
@@ -56,8 +56,8 @@ export const deletePublicConnection = asyncWrapper<DeletePublicConnection>(async
         connection,
         providerConfigKey: query.provider_config_key,
         environmentId: environment.id,
-        logContextGetter,
         orchestrator,
+        slackService,
         preDeletionHook
     });
 

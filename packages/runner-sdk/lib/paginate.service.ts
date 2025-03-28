@@ -1,6 +1,7 @@
 import type { AxiosResponse } from 'axios';
 import parseLinksHeader from 'parse-link-header';
 import get from 'lodash-es/get.js';
+import set from 'lodash-es/set.js';
 import type { CursorPagination, LinkPagination, OffsetCalculationMethod, OffsetPagination, Pagination, UserProvidedProxyConfiguration } from '@nangohq/types';
 
 function isValidURL(str: string): boolean {
@@ -65,7 +66,7 @@ class PaginationService {
 
             this.updateConfigBodyOrParams(passPaginationParamsInBody, config, updatedBodyOrParams);
 
-            const response: AxiosResponse = await proxy(config);
+            const response = await proxy(config);
 
             const responseData: T[] = cursorPagination.response_path ? get(response.data, cursorPagination.response_path) : response.data;
 
@@ -99,7 +100,7 @@ class PaginationService {
         this.updateConfigBodyOrParams(passPaginationParamsInBody, config, updatedBodyOrParams);
 
         while (true) {
-            const response: AxiosResponse = await proxy(config);
+            const response = await proxy(config);
 
             const responseData: T[] = paginationConfig.response_path ? get(response.data, paginationConfig.response_path) : response.data;
             if (!responseData.length) {
@@ -119,6 +120,10 @@ class PaginationService {
                 config.endpoint = nextPageLink;
             } else {
                 const url: URL = new URL(nextPageLink);
+                // since this is a fully formed URL then we can reliably use this
+                // also since this might contain the base URL we need to override it
+                config.baseUrlOverride = url.origin;
+                // ensure that the base URL doesn't contain the path
                 config.endpoint = url.pathname + url.search;
             }
 
@@ -143,7 +148,7 @@ class PaginationService {
 
             this.updateConfigBodyOrParams(passPaginationParamsInBody, config, updatedBodyOrParams);
 
-            const response: AxiosResponse = await proxy(config);
+            const response = await proxy(config);
 
             const responseData: T[] = paginationConfig.response_path ? get(response.data, paginationConfig.response_path) : response.data;
             if (!responseData || !responseData.length) {
@@ -169,9 +174,19 @@ class PaginationService {
         }
     }
 
+    /*
+     * Update the config object with the updated body or params based on the pagination type
+     * @desc if a pagination type requires the pagination params to be passed in the body,
+     * then the updatedBodyOrParams will be passed in the body of the config object,
+     * with handling for . notation in the keys
+     */
     private updateConfigBodyOrParams(passPaginationParamsInBody: boolean, config: UserProvidedProxyConfiguration, updatedBodyOrParams: Record<string, string>) {
         if (passPaginationParamsInBody) {
-            config.data = updatedBodyOrParams;
+            const expandedParams = Object.keys(updatedBodyOrParams).reduce((acc, key) => {
+                set(acc, key, updatedBodyOrParams[key]);
+                return acc;
+            }, {});
+            config.data = expandedParams;
         } else {
             config.params = updatedBodyOrParams;
         }

@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-redundant-type-constituents */
 import type { Endpoint } from '../api';
 import type { PickFromUnion } from '../utils';
-import type { MessageRow, MessageState, OperationList, OperationRow } from './messages';
+import type { MessageRow, OperationList, OperationRow, OperationState } from './messages';
 
 type Concat<T extends OperationList> = T extends { action: string } ? `${T['type']}:${T['action']}` : never;
 export type ConcatOperationList = Concat<OperationList>;
@@ -26,7 +26,7 @@ export type SearchOperations = Endpoint<{
         pagination: { total: number; cursor: string | null };
     };
 }>;
-export type SearchOperationsState = 'all' | MessageState;
+export type SearchOperationsState = 'all' | OperationState;
 export type SearchOperationsType = 'all' | ConcatOperationListWithGroup;
 export type SearchOperationsIntegration = 'all' | string;
 export type SearchOperationsConnection = 'all' | string;
@@ -82,7 +82,7 @@ export type PostInsights = Endpoint<{
     Path: '/api/v1/logs/insights';
     Querystring: { env: string };
     Body: {
-        type: PickFromUnion<ConcatOperationListWithGroup, 'action' | 'sync:run' | 'proxy' | 'webhook:incoming'>;
+        type: PickFromUnion<ConcatOperationListWithGroup, 'action' | 'sync:run' | 'proxy' | 'webhook:incoming' | 'auth:create_connection'>;
     };
     Success: {
         data: {
@@ -95,4 +95,7 @@ export interface InsightsHistogramEntry {
     total: number;
     success: number;
     failure: number;
+    cancelled: number;
+    expired: number;
+    running: number;
 }

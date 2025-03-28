@@ -1,9 +1,10 @@
 import type { ApiError, ApiTimestamps, Endpoint } from '../../api.js';
-import type { DBConnection } from '../db.js';
-import type { ActiveLog } from '../../notification/active-logs/db.js';
-import type { Merge } from 'type-fest';
-import type { ApiEndUser } from '../../endUser/index.js';
 import type { AllAuthCredentials } from '../../auth/api.js';
+import type { ApiEndUser } from '../../endUser/index.js';
+import type { ActiveLog } from '../../notification/active-logs/db.js';
+import type { ReplaceInObject } from '../../utils.js';
+import type { DBConnection, DBConnectionDecrypted } from '../db.js';
+import type { Merge } from 'type-fest';
 
 export type ApiConnectionSimple = Pick<Merge<DBConnection, ApiTimestamps>, 'id' | 'connection_id' | 'provider_config_key' | 'created_at' | 'updated_at'> & {
     provider: string;
@@ -57,7 +58,10 @@ export type GetPublicConnections = Endpoint<{
     };
 }>;
 
-export type ApiConnectionFull = Merge<DBConnection, ApiTimestamps>;
+export type ApiConnectionFull = Omit<
+    ReplaceInObject<DBConnectionDecrypted, Date, string>,
+    'credentials_iv' | 'end_user_id' | 'credentials_tag' | 'deleted' | 'deleted_at'
+>;
 export type GetConnection = Endpoint<{
     Method: 'GET';
     Params: {
@@ -82,7 +86,7 @@ export type GetConnection = Endpoint<{
 export type ApiPublicConnectionFull = Pick<DBConnection, 'id' | 'connection_id' | 'provider_config_key' | 'connection_config'> & {
     created_at: string;
     updated_at: string;
-    last_fetched_at: string;
+    last_fetched_at: string | null;
     metadata: Record<string, unknown> | null;
     provider: string;
     errors: { type: string; log_id: string }[];

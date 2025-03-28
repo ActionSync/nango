@@ -1,20 +1,21 @@
 import { Prism } from '@mantine/prism';
+import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { mutate } from 'swr';
 
-import PrismPlus from '../../components/ui/prism/PrismPlus';
-import type { ActiveLog, ApiConnectionFull, ApiEndUser } from '@nangohq/types';
-import { formatDateToShortUSFormat } from '../../utils/utils';
+import { CopyText } from '../../components/CopyText';
+import { Info } from '../../components/Info';
 import SecretInput from '../../components/ui/input/SecretInput';
 import TagsInput from '../../components/ui/input/TagsInput';
-import type React from 'react';
+import PrismPlus from '../../components/ui/prism/PrismPlus';
 import { apiRefreshConnection } from '../../hooks/useConnections';
-import { useMemo, useState } from 'react';
-import { useStore } from '../../store';
 import { useToast } from '../../hooks/useToast';
-import { mutate } from 'swr';
+import { useStore } from '../../store';
 import { getLogsUrl } from '../../utils/logs';
-import { Info } from '../../components/Info';
-import { Link } from 'react-router-dom';
-import { CopyText } from '../../components/CopyText';
+import { formatDateToShortUSFormat } from '../../utils/utils';
+
+import type { ActiveLog, ApiConnectionFull, ApiEndUser } from '@nangohq/types';
+import type React from 'react';
 
 const JSON_DISPLAY_LIMIT = 250_000;
 
@@ -46,14 +47,19 @@ export const Authorization: React.FC<AuthorizationProps> = ({ connection, errorL
 
     const connectionConfig = useMemo(() => JSON.stringify(connection.connection_config, null, 4) || '{}', [connection.connection_config]);
     const connectionMetadata = useMemo(() => JSON.stringify(connection.metadata, null, 4) || '{}', [connection.metadata]);
-    const rawTokenResponse = useMemo(() => JSON.stringify(connection.credentials.raw, null, 4) || '{}', [connection.credentials.raw]);
+    const rawTokenResponse = useMemo(
+        () => ('raw' in connection.credentials ? JSON.stringify(connection.credentials.raw, null, 4) : '{}'),
+        [connection.credentials]
+    );
 
     return (
         <div className="mx-auto space-y-12 text-sm w-[976px]">
             {errorLog && (
                 <div className="flex my-4">
                     <Info variant={'destructive'}>
-                        There was an error refreshing the credentials
+                        {connection.credentials.type === 'BASIC' || connection.credentials.type === 'API_KEY'
+                            ? 'There was an error while testing credentials validity'
+                            : 'There was an error refreshing the credentials'}
                         <Link
                             to={getLogsUrl({ env, operationId: errorLog.log_id, connections: connection.connection_id, day: errorLog.created_at })}
                             className="ml-1 cursor-pointer underline"
@@ -120,7 +126,7 @@ export const Authorization: React.FC<AuthorizationProps> = ({ connection, errorL
                 {'expires_at' in connection.credentials && connection.credentials.expires_at && (
                     <div className="flex flex-col">
                         <span className="text-gray-400 text-xs uppercase mb-1">Access Token Expiration</span>
-                        <span className="text-white">{formatDateToShortUSFormat(connection.credentials.expires_at.toString())}</span>
+                        <span className="text-white">{formatDateToShortUSFormat(connection.credentials.expires_at as unknown as string)}</span>
                     </div>
                 )}
             </div>

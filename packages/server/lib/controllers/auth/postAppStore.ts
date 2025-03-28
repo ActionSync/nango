@@ -1,7 +1,7 @@
 import type { NextFunction } from 'express';
 import { z } from 'zod';
 import { asyncWrapper } from '../../utils/asyncWrapper.js';
-import { zodErrorToHTTP, stringifyError } from '@nangohq/utils';
+import { zodErrorToHTTP, stringifyError, metrics } from '@nangohq/utils';
 import type { AuthCredentials } from '@nangohq/shared';
 import {
     analytics,
@@ -16,7 +16,7 @@ import {
 } from '@nangohq/shared';
 import type { PostPublicAppStoreAuthorization } from '@nangohq/types';
 import type { LogContext } from '@nangohq/logs';
-import { defaultOperationExpiration, logContextGetter } from '@nangohq/logs';
+import { defaultOperationExpiration, endUserToMeta, logContextGetter } from '@nangohq/logs';
 import { hmacCheck } from '../../utils/hmac.js';
 import { connectionCreated as connectionCreatedHook, connectionCreationFailed as connectionCreationFailedHook } from '../../hooks/hooks.js';
 import { connectionCredential, connectionIdSchema, providerConfigKeySchema } from '../../helpers/validation.js';
@@ -70,7 +70,7 @@ export const postPublicAppStoreAuthorization = asyncWrapper<PostPublicAppStoreAu
         return;
     }
 
-    const { account, environment } = res.locals;
+    const { account, environment, connectSession } = res.locals;
     const { issuerId, privateKey, privateKeyId, scope }: PostPublicAppStoreAuthorization['Body'] = val.data;
     const queryString: PostPublicAppStoreAuthorization['Querystring'] = queryStringVal.data;
     const { providerConfigKey }: PostPublicAppStoreAuthorization['Params'] = paramsVal.data;
@@ -86,14 +86,17 @@ export const postPublicAppStoreAuthorization = asyncWrapper<PostPublicAppStoreAu
 
     let logCtx: LogContext | undefined;
     try {
-        logCtx = await logContextGetter.create(
-            {
-                operation: { type: 'auth', action: 'create_connection' },
-                meta: { authType: 'appstore' },
-                expiresAt: defaultOperationExpiration.auth()
-            },
-            { account, environment }
-        );
+        logCtx =
+            isConnectSession && connectSession.operationId
+                ? await logContextGetter.get({ id: connectSession.operationId, accountId: account.id })
+                : await logContextGetter.create(
+                      {
+                          operation: { type: 'auth', action: 'create_connection' },
+                          meta: { authType: 'appstore', connectSession: endUserToMeta(res.locals.endUser) },
+                          expiresAt: defaultOperationExpiration.auth()
+                      },
+                      { account, environment }
+                  );
         void analytics.track(AnalyticsTypes.PRE_APP_STORE_AUTH, account.id);
 
         if (!isConnectSession) {
@@ -105,7 +108,7 @@ export const postPublicAppStoreAuthorization = asyncWrapper<PostPublicAppStoreAu
 
         const config = await configService.getProviderConfig(providerConfigKey, environment.id);
         if (!config) {
-            await logCtx.error('Unknown provider config');
+            void logCtx.error('Unknown provider config');
             await logCtx.failed();
             res.status(404).send({ error: { code: 'unknown_provider_config' } });
             return;
@@ -113,14 +116,14 @@ export const postPublicAppStoreAuthorization = asyncWrapper<PostPublicAppStoreAu
 
         const provider = getProvider(config.provider);
         if (!provider) {
-            await logCtx.error('Unknown provider');
+            void logCtx.error('Unknown provider');
             await logCtx.failed();
             res.status(404).send({ error: { code: 'unknown_provider_template' } });
             return;
         }
 
         if (provider.auth_mode !== 'APP_STORE') {
-            await logCtx.error('Provider does not support App Store auth', { provider: config.provider });
+            void logCtx.error('Provider does not support App Store auth', { provider: config.provider });
             await logCtx.failed();
             res.status(400).send({ error: { code: 'invalid_auth_mode' } });
             return;
@@ -131,10 +134,10 @@ export const postPublicAppStoreAuthorization = asyncWrapper<PostPublicAppStoreAu
         }
 
         // Reconnect mechanism
-        if (isConnectSession && res.locals.connectSession.connectionId) {
-            const connection = await connectionService.getConnectionById(res.locals.connectSession.connectionId);
+        if (isConnectSession && connectSession.connectionId) {
+            const connection = await connectionService.getConnectionById(connectSession.connectionId);
             if (!connection) {
-                await logCtx.error('Invalid connection');
+                void logCtx.error('Invalid connection');
                 await logCtx.failed();
                 res.status(400).send({ error: { code: 'invalid_connection' } });
                 return;
@@ -164,10 +167,10 @@ export const postPublicAppStoreAuthorization = asyncWrapper<PostPublicAppStoreAu
                     },
                     operation: 'unknown'
                 },
-                config.provider,
-                logCtx
+                account,
+                config
             );
-            await logCtx.error('Failed to credentials');
+            void logCtx.error('Failed to credentials');
             await logCtx.failed();
             return;
         }
@@ -183,18 +186,17 @@ export const postPublicAppStoreAuthorization = asyncWrapper<PostPublicAppStoreAu
         });
         if (!updatedConnection) {
             res.status(500).send({ error: { code: 'server_error', message: 'failed to create connection' } });
-            await logCtx.error('Failed to create connection');
+            void logCtx.error('Failed to create connection');
             await logCtx.failed();
             return;
         }
 
         if (isConnectSession) {
-            const session = res.locals.connectSession;
-            await linkConnection(db.knex, { endUserId: session.endUserId, connection: updatedConnection.connection });
+            await linkConnection(db.knex, { endUserId: connectSession.endUserId, connection: updatedConnection.connection });
         }
 
-        await logCtx.enrichOperation({ connectionId: updatedConnection.connection.id!, connectionName: updatedConnection.connection.connection_id });
-        await logCtx.info('App Store auth creation was successful');
+        await logCtx.enrichOperation({ connectionId: updatedConnection.connection.id, connectionName: updatedConnection.connection.connection_id });
+        void logCtx.info('App Store auth creation was successful');
         await logCtx.success();
 
         void connectionCreatedHook(
@@ -206,11 +208,12 @@ export const postPublicAppStoreAuthorization = asyncWrapper<PostPublicAppStoreAu
                 operation: updatedConnection.operation,
                 endUser: isConnectSession ? res.locals['endUser'] : undefined
             },
-            config.provider,
-            logContextGetter,
-            undefined,
-            logCtx
+            account,
+            config,
+            logContextGetter
         );
+
+        metrics.increment(metrics.Types.AUTH_SUCCESS, 1, { auth_mode: provider.auth_mode });
 
         res.status(200).send({ providerConfigKey: providerConfigKey, connectionId: connectionId });
     } catch (err) {
@@ -229,10 +232,9 @@ export const postPublicAppStoreAuthorization = asyncWrapper<PostPublicAppStoreAu
                     },
                     operation: 'unknown'
                 },
-                'unknown',
-                logCtx
+                account
             );
-            await logCtx.error('Error during App Store auth', { error: err });
+            void logCtx.error('Error during App Store auth', { error: err });
             await logCtx.failed();
         }
 
@@ -242,6 +244,8 @@ export const postPublicAppStoreAuthorization = asyncWrapper<PostPublicAppStoreAu
             environmentId: environment.id,
             metadata: { providerConfigKey, connectionId }
         });
+
+        metrics.increment(metrics.Types.AUTH_FAILURE, 1, { auth_mode: 'APP_STORE' });
 
         next(err);
     }

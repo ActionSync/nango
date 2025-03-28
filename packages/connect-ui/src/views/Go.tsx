@@ -1,14 +1,12 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { AuthError } from '@nangohq/frontend';
 import { IconArrowLeft, IconCircleCheckFilled, IconExclamationCircle, IconExclamationCircleFilled, IconInfoCircle, IconX } from '@tabler/icons-react';
 import { Link, Navigate } from '@tanstack/react-router';
-import { useCallback, useEffect, useState, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useMount } from 'react-use';
 import { z } from 'zod';
 
-import type { AuthResult } from '@nangohq/frontend';
-import type { AuthModeType } from '@nangohq/types';
+import { AuthError } from '@nangohq/frontend';
 
 import { CustomInput } from '@/components/CustomInput';
 import { Button } from '@/components/ui/button';
@@ -16,8 +14,11 @@ import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, For
 import { triggerClose, triggerConnection } from '@/lib/events';
 import { useNango } from '@/lib/nango';
 import { useGlobal } from '@/lib/store';
+import { telemetry } from '@/lib/telemetry';
 import { cn, jsonSchemaToZod } from '@/lib/utils';
 
+import type { AuthResult } from '@nangohq/frontend';
+import type { AuthModeType } from '@nangohq/types';
 import type { Resolver } from 'react-hook-form';
 
 const formSchema: Record<AuthModeType, z.AnyZodObject> = {
@@ -93,7 +94,7 @@ const defaultConfiguration: Record<string, { secret: boolean; title: string; exa
 };
 
 export const Go: React.FC = () => {
-    const { provider, integration, session, isSingleIntegration, setIsDirty } = useGlobal();
+    const { provider, integration, session, isSingleIntegration, detectClosedAuthWindow, setIsDirty } = useGlobal();
     const nango = useNango();
 
     const [loading, setLoading] = useState(false);
@@ -104,6 +105,9 @@ export const Go: React.FC = () => {
     const preconfigured = session && integration ? session.integrations_config_defaults?.[integration.unique_key]?.connection_config || {} : {};
 
     useMount(() => {
+        if (integration) {
+            telemetry('view:integration', { integration: integration.unique_key });
+        }
         // on unmount always clear popup and state
         return () => {
             nango?.clear();
@@ -199,9 +203,15 @@ export const Go: React.FC = () => {
     }, [isDirty, setIsDirty]);
     useEffect(() => {
         if (result) {
+            telemetry('view:success');
             setIsDirty(false);
         }
     }, [result, setIsDirty]);
+    useEffect(() => {
+        if (connectionFailed) {
+            telemetry('view:credentials_error');
+        }
+    }, [connectionFailed]);
 
     const onSubmit = useCallback(
         async (values: z.infer<(typeof formSchema)[AuthModeType]>) => {
@@ -209,6 +219,7 @@ export const Go: React.FC = () => {
                 return;
             }
 
+            telemetry('click:connect');
             setLoading(true);
             setError(null);
             // we don't care if it was already opened
@@ -222,13 +233,13 @@ export const Go: React.FC = () => {
                 } else if (provider.auth_mode === 'OAUTH2' || provider.auth_mode === 'OAUTH1' || provider.auth_mode === 'CUSTOM') {
                     res = await nango.auth(integration.unique_key, {
                         ...values,
-                        detectClosedAuthWindow: true
+                        detectClosedAuthWindow
                     });
                 } else {
                     res = await nango.auth(integration.unique_key, {
                         params: values['params'] || {},
                         credentials: { ...values['credentials'], type: provider.auth_mode },
-                        detectClosedAuthWindow: true
+                        detectClosedAuthWindow
                     });
                 }
                 setResult(res);
@@ -236,9 +247,11 @@ export const Go: React.FC = () => {
             } catch (err) {
                 if (err instanceof AuthError) {
                     if (err.type === 'blocked_by_browser') {
+                        telemetry('popup:blocked_by_browser');
                         setError('Auth pop-up blocked by your browser, please allow pop-ups to open');
                         return;
                     } else if (err.type === 'windowClosed') {
+                        telemetry('popup:closed_early');
                         setError('The auth pop-up was closed before the end of the process, please try again');
                         return;
                     } else if (err.type === 'connection_test_failed') {
@@ -270,7 +283,7 @@ export const Go: React.FC = () => {
                     <h2 className="text-xl font-semibold">Success!</h2>
                     <p className="text-dark-500">You&apos;ve successfully set up your {provider.name} integration</p>
                 </div>
-                <Button className="w-full" loading={loading} size={'lg'} onClick={() => triggerClose()}>
+                <Button className="w-full" loading={loading} size={'lg'} onClick={() => triggerClose('click:finish')}>
                     Finish
                 </Button>
             </main>
@@ -314,7 +327,7 @@ export const Go: React.FC = () => {
                     ) : (
                         <div></div>
                     )}
-                    <Button size={'icon'} title="Close UI" variant={'transparent'} onClick={() => triggerClose()}>
+                    <Button size={'icon'} title="Close UI" variant={'transparent'} onClick={() => triggerClose('click:close')}>
                         <IconX stroke={1} />
                     </Button>
                 </div>
@@ -358,7 +371,11 @@ export const Go: React.FC = () => {
                                                                     <span className="bg-dark-300 rounded-lg px-2 py-0.5 text-xs text-dark-500">optional</span>
                                                                 )}
                                                                 {definition?.doc_section && (
-                                                                    <Link target="_blank" to={`${provider.docs_connect}${definition.doc_section}`}>
+                                                                    <Link
+                                                                        target="_blank"
+                                                                        to={`${provider.docs_connect}${definition.doc_section}`}
+                                                                        onClick={() => telemetry('click:doc_section')}
+                                                                    >
                                                                         <IconInfoCircle size={16} />
                                                                     </Link>
                                                                 )}
@@ -416,7 +433,7 @@ export const Go: React.FC = () => {
                             {provider.docs_connect && (
                                 <p className="text-dark-500 text-center">
                                     Need help?{' '}
-                                    <Link className="underline text-dark-800" target="_blank" to={provider.docs_connect}>
+                                    <Link className="underline text-dark-800" target="_blank" to={provider.docs_connect} onClick={() => telemetry('click:doc')}>
                                         View connection guide
                                     </Link>
                                 </p>

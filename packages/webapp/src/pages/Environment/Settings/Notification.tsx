@@ -1,14 +1,17 @@
-import { IconServer } from '@tabler/icons-react';
-import { useStore } from '../../../store';
-import { apiPatchEnvironment, apiPatchWebhook, useEnvironment } from '../../../hooks/useEnvironment';
-import { Button } from '../../../components/ui/button/Button';
+import { IconBell, IconExternalLink } from '@tabler/icons-react';
 import { useState } from 'react';
-import { useToast } from '../../../hooks/useToast';
-import { apiFetch } from '../../../utils/api';
-import { connectSlack } from '../../../utils/slack-connection';
-import IntegrationLogo from '../../../components/ui/IntegrationLogo';
-import { WebhookCheckboxes } from './WebhookCheckboxes';
+import { Link } from 'react-router-dom';
+
 import { EditableInput } from './EditableInput';
+import { WebhookCheckboxes } from './WebhookCheckboxes';
+import IntegrationLogo from '../../../components/ui/IntegrationLogo';
+import { Button } from '../../../components/ui/button/Button';
+import { apiPatchEnvironment, apiPatchWebhook, useEnvironment } from '../../../hooks/useEnvironment';
+import { useToast } from '../../../hooks/useToast';
+import { useStore } from '../../../store';
+import { apiFetch } from '../../../utils/api';
+import { globalEnv } from '../../../utils/env';
+import { connectSlack } from '../../../utils/slack-connection';
 
 export const NotificationSettings: React.FC = () => {
     const env = useStore((state) => state.env);
@@ -29,7 +32,7 @@ export const NotificationSettings: React.FC = () => {
             toast({ title: `Failed to create Slack connection!`, variant: 'error' });
             setSlackIsConnecting(false);
         };
-        await connectSlack({ accountUUID: environmentAndAccount!.uuid, env, hostUrl: environmentAndAccount!.host, onFinish, onFailure });
+        await connectSlack({ accountUUID: environmentAndAccount!.uuid, env, hostUrl: globalEnv.apiUrl, onFinish, onFailure });
     };
 
     const slackDisconnect = async () => {
@@ -60,15 +63,17 @@ export const NotificationSettings: React.FC = () => {
 
     return (
         <div className="text-grayscale-100 flex flex-col gap-10">
-            <div className="flex gap-2 items-center rounded-md bg-grayscale-900 px-8 h-10">
+            <Link className="flex gap-2 items-center rounded-md bg-grayscale-900 px-8 h-10" to="#notification" id="notification">
                 <div>
-                    <IconServer stroke={1} size={18} />
+                    <IconBell stroke={1} size={18} />
                 </div>
                 <h3 className="uppercase text-sm">Notification Settings</h3>
-            </div>
+            </Link>
             <div className="px-8 flex flex-col gap-10 w-3/5">
                 <div className="flex flex-col gap-4">
-                    <label className="font-semibold">Webhooks URLs</label>
+                    <Link to="https://docs.nango.dev/guides/webhooks/webhooks-from-nango" className="flex gap-2 items-center" target="_blank">
+                        <label className="font-semibold">Webhooks URLs</label> <IconExternalLink stroke={1} size={18} />
+                    </Link>
 
                     <EditableInput
                         name="primary_url"
@@ -85,7 +90,7 @@ export const NotificationSettings: React.FC = () => {
                         placeholder="https://example.com/webhooks_from_nango"
                         subTitle={true}
                         originalValue={environmentAndAccount.webhook_settings.secondary_url || ''}
-                        apiCall={(value) => apiPatchWebhook(env, { primary_url: value })}
+                        apiCall={(value) => apiPatchWebhook(env, { secondary_url: value })}
                         onSuccess={() => void mutate()}
                     />
                     <WebhookCheckboxes env={env} checkboxState={environmentAndAccount.webhook_settings} mutate={mutate} />
@@ -95,7 +100,7 @@ export const NotificationSettings: React.FC = () => {
                     <label htmlFor="envvar" className="font-semibold">
                         Slack alerts
                     </label>
-                    <Button disabled={slackIsConnecting} variant={isConnected ? 'primary' : 'tertiary'} onClick={isConnected ? slackDisconnect : slackConnect}>
+                    <Button disabled={slackIsConnecting} variant={isConnected ? 'primary' : 'primary'} onClick={isConnected ? slackDisconnect : slackConnect}>
                         <IntegrationLogo provider="slack" />
                         {isConnected ? `Disconnect ${environmentAndAccount.slack_notifications_channel}` : 'Connect to Slack'}
                     </Button>

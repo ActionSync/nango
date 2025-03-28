@@ -1,17 +1,32 @@
 import './tracer.js';
-import { Processor } from './processor/processor.js';
-import { server } from './server.js';
-import { deleteSyncsData } from './crons/deleteSyncsData.js';
-import { getLogger, stringifyError, once } from '@nangohq/utils';
-import { timeoutLogsOperations } from './crons/timeoutLogsOperations.js';
-import { envs } from './env.js';
+
 import db from '@nangohq/database';
-import { getOtlpRoutes } from '@nangohq/shared';
-import { otlp } from '@nangohq/logs';
-import { runnersFleet } from './runner/fleet.js';
 import { generateImage } from '@nangohq/fleet';
+import { destroy as destroyKvstore } from '@nangohq/kvstore';
+import { destroy as destroyLogs, otlp } from '@nangohq/logs';
+import { getOtlpRoutes } from '@nangohq/shared';
+import { getLogger, initSentry, once, report, stringifyError } from '@nangohq/utils';
+
+import { envs } from './env.js';
+import { Processor } from './processor/processor.js';
+import { runnersFleet } from './runner/fleet.js';
+import { server } from './server.js';
 
 const logger = getLogger('Jobs');
+
+process.on('unhandledRejection', (reason) => {
+    logger.error('Received unhandledRejection...', reason);
+    report(reason);
+    // not closing on purpose
+});
+
+process.on('uncaughtException', (err) => {
+    logger.error('Received uncaughtException...', err);
+    report(err);
+    // not closing on purpose
+});
+
+initSentry({ dsn: envs.SENTRY_DSN, applicationName: envs.NANGO_DB_APPLICATION_NAME, hash: envs.GIT_HASH });
 
 try {
     const port = envs.NANGO_JOBS_PORT;
@@ -32,7 +47,7 @@ try {
             healthCheck = setTimeout(check, TIMEOUT);
         } catch (err) {
             healthCheckFailures += 1;
-            logger.error(`HealthCheck failed (${healthCheckFailures} times)...`, err);
+            report(new Error(`HealthCheck failed (${healthCheckFailures} times)...`, { cause: err }));
             if (healthCheckFailures > MAX_FAILURES) {
                 close();
             } else {
@@ -45,11 +60,19 @@ try {
     const close = once(() => {
         logger.info('Closing...');
         clearTimeout(healthCheck);
+
+        // eslint-disable-next-line @typescript-eslint/no-misused-promises
         srv.close(async () => {
             processor.stop();
             otlp.stop();
+            await destroyLogs();
             await runnersFleet.stop();
             await db.knex.destroy();
+            await db.readOnly.destroy();
+            await destroyKvstore();
+
+            console.info('Closed');
+
             process.exit();
         });
     });
@@ -64,36 +87,17 @@ try {
         close();
     });
 
-    process.on('unhandledRejection', (reason) => {
-        logger.error('Received unhandledRejection...', reason);
-        // not closing on purpose
-    });
-
-    process.on('uncaughtException', (e) => {
-        logger.error('Received uncaughtException...', e);
-        // not closing on purpose
-    });
-
     if (envs.RUNNER_TYPE === 'LOCAL') {
         // when running locally, the runners (running as processes) are being killed
         // when the main process is killed and the fleet entries are therefore not associated with any running process
         // we then must fake a new deployment so fleet replaces runners with new ones
-        const image = generateImage();
-        if (image.isErr()) {
-            logger.error(`Unable to generate commit hash`, image.error);
-        } else {
-            await runnersFleet.rollout(image.value, { verifyImage: false });
-        }
+        await runnersFleet.rollout(generateImage(), { verifyImage: false });
     }
     runnersFleet.start();
 
     processor.start();
 
-    // Register recurring tasks
-    deleteSyncsData();
-    timeoutLogsOperations();
-
-    otlp.register(getOtlpRoutes);
+    void otlp.register(getOtlpRoutes);
 } catch (err) {
     logger.error(stringifyError(err));
     process.exit(1);

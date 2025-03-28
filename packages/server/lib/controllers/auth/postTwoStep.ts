@@ -1,7 +1,7 @@
 import type { NextFunction } from 'express';
 import { z } from 'zod';
 import { asyncWrapper } from '../../utils/asyncWrapper.js';
-import { zodErrorToHTTP, stringifyError } from '@nangohq/utils';
+import { zodErrorToHTTP, stringifyError, metrics } from '@nangohq/utils';
 import {
     analytics,
     configService,
@@ -12,11 +12,12 @@ import {
     ErrorSourceEnum,
     LogActionEnum,
     getProvider,
-    linkConnection
+    linkConnection,
+    getConnectionMetadataFromTokenResponse
 } from '@nangohq/shared';
 import type { PostPublicTwoStepAuthorization, ProviderTwoStep } from '@nangohq/types';
 import type { LogContext } from '@nangohq/logs';
-import { defaultOperationExpiration, logContextGetter } from '@nangohq/logs';
+import { defaultOperationExpiration, endUserToMeta, logContextGetter } from '@nangohq/logs';
 import { hmacCheck } from '../../utils/hmac.js';
 import { connectionCreated as connectionCreatedHook, connectionCreationFailed as connectionCreationFailedHook } from '../../hooks/hooks.js';
 import { connectionIdSchema, providerConfigKeySchema, connectionCredential } from '../../helpers/validation.js';
@@ -64,11 +65,11 @@ export const postPublicTwoStepAuthorization = asyncWrapper<PostPublicTwoStepAuth
         return;
     }
 
-    const { account, environment } = res.locals;
+    const { account, environment, connectSession } = res.locals;
     const bodyData: PostPublicTwoStepAuthorization['Body'] = val.data;
     const queryString: PostPublicTwoStepAuthorization['Querystring'] = queryStringVal.data;
     const { providerConfigKey }: PostPublicTwoStepAuthorization['Params'] = paramsVal.data;
-    const connectionConfig = queryString.params ? getConnectionConfig(queryString.params) : {};
+    let connectionConfig = queryString.params ? getConnectionConfig(queryString.params) : {};
     let connectionId = queryString.connection_id || connectionService.generateConnectionId();
     const hmac = 'hmac' in queryString ? queryString.hmac : undefined;
     const isConnectSession = res.locals['authType'] === 'connectSession';
@@ -81,14 +82,17 @@ export const postPublicTwoStepAuthorization = asyncWrapper<PostPublicTwoStepAuth
     let logCtx: LogContext | undefined;
 
     try {
-        logCtx = await logContextGetter.create(
-            {
-                operation: { type: 'auth', action: 'create_connection' },
-                meta: { authType: 'twostep' },
-                expiresAt: defaultOperationExpiration.auth()
-            },
-            { account, environment }
-        );
+        logCtx =
+            isConnectSession && connectSession.operationId
+                ? await logContextGetter.get({ id: connectSession.operationId, accountId: account.id })
+                : await logContextGetter.create(
+                      {
+                          operation: { type: 'auth', action: 'create_connection' },
+                          meta: { authType: 'twostep', connectSession: endUserToMeta(res.locals.endUser) },
+                          expiresAt: defaultOperationExpiration.auth()
+                      },
+                      { account, environment }
+                  );
         void analytics.track(AnalyticsTypes.PRE_TWO_STEP_AUTH, account.id);
 
         if (!isConnectSession) {
@@ -100,7 +104,7 @@ export const postPublicTwoStepAuthorization = asyncWrapper<PostPublicTwoStepAuth
 
         const config = await configService.getProviderConfig(providerConfigKey, environment.id);
         if (!config) {
-            await logCtx.error('Unknown provider config');
+            void logCtx.error('Unknown provider config');
             await logCtx.failed();
             res.status(404).send({ error: { code: 'unknown_provider_config' } });
             return;
@@ -108,14 +112,14 @@ export const postPublicTwoStepAuthorization = asyncWrapper<PostPublicTwoStepAuth
 
         const provider = getProvider(config.provider);
         if (!provider) {
-            await logCtx.error('Unknown provider');
+            void logCtx.error('Unknown provider');
             await logCtx.failed();
             res.status(404).send({ error: { code: 'unknown_provider_template' } });
             return;
         }
 
         if (provider.auth_mode !== 'TWO_STEP') {
-            await logCtx.error('Provider does not support TWO_STEP auth', { provider: config.provider });
+            void logCtx.error('Provider does not support TWO_STEP auth', { provider: config.provider });
             await logCtx.failed();
             res.status(400).send({ error: { code: 'invalid_auth_mode' } });
             return;
@@ -126,10 +130,10 @@ export const postPublicTwoStepAuthorization = asyncWrapper<PostPublicTwoStepAuth
         }
 
         // Reconnect mechanism
-        if (isConnectSession && res.locals.connectSession.connectionId) {
-            const connection = await connectionService.getConnectionById(res.locals.connectSession.connectionId);
+        if (isConnectSession && connectSession.connectionId) {
+            const connection = await connectionService.getConnectionById(connectSession.connectionId);
             if (!connection) {
-                await logCtx.error('Invalid connection');
+                void logCtx.error('Invalid connection');
                 await logCtx.failed();
                 res.status(400).send({ error: { code: 'invalid_connection' } });
                 return;
@@ -146,13 +150,20 @@ export const postPublicTwoStepAuthorization = asyncWrapper<PostPublicTwoStepAuth
         } = await connectionService.getTwoStepCredentials(provider as ProviderTwoStep, bodyData, connectionConfig);
 
         if (!success || !credentials) {
-            await logCtx.error('Error during TwoStep credentials creation', { error, provider: config.provider });
+            void logCtx.error('Error during TwoStep credentials creation', { error, provider: config.provider });
             await logCtx.failed();
 
             errorManager.errRes(res, 'two_step_error');
 
             return;
         }
+
+        const tokenMetadata = getConnectionMetadataFromTokenResponse(credentials.raw, provider);
+
+        connectionConfig = {
+            ...connectionConfig,
+            ...tokenMetadata
+        };
 
         const [updatedConnection] = await connectionService.upsertAuthConnection({
             connectionId,
@@ -167,18 +178,17 @@ export const postPublicTwoStepAuthorization = asyncWrapper<PostPublicTwoStepAuth
 
         if (!updatedConnection) {
             res.status(500).send({ error: { code: 'server_error', message: 'failed to create connection' } });
-            await logCtx.error('Failed to create connection');
+            void logCtx.error('Failed to create connection');
             await logCtx.failed();
             return;
         }
 
         if (isConnectSession) {
-            const session = res.locals.connectSession;
-            await linkConnection(db.knex, { endUserId: session.endUserId, connection: updatedConnection.connection });
+            await linkConnection(db.knex, { endUserId: connectSession.endUserId, connection: updatedConnection.connection });
         }
 
-        await logCtx.enrichOperation({ connectionId: updatedConnection.connection.id!, connectionName: updatedConnection.connection.connection_id });
-        await logCtx.info('TwoStep connection creation was successful');
+        await logCtx.enrichOperation({ connectionId: updatedConnection.connection.id, connectionName: updatedConnection.connection.connection_id });
+        void logCtx.info('TwoStep connection creation was successful');
         await logCtx.success();
 
         void connectionCreatedHook(
@@ -190,11 +200,13 @@ export const postPublicTwoStepAuthorization = asyncWrapper<PostPublicTwoStepAuth
                 operation: updatedConnection.operation,
                 endUser: isConnectSession ? res.locals['endUser'] : undefined
             },
-            config.provider,
+            account,
+            config,
             logContextGetter,
-            undefined,
-            logCtx
+            undefined
         );
+
+        metrics.increment(metrics.Types.AUTH_SUCCESS, 1, { auth_mode: provider.auth_mode });
 
         res.status(200).send({ providerConfigKey, connectionId });
     } catch (err) {
@@ -212,11 +224,10 @@ export const postPublicTwoStepAuthorization = asyncWrapper<PostPublicTwoStepAuth
                 },
                 operation: 'unknown'
             },
-            'unknown',
-            logCtx
+            account
         );
         if (logCtx) {
-            await logCtx.error('Error during TwoStep credentials creation', { error: err });
+            void logCtx.error('Error during TwoStep credentials creation', { error: err });
             await logCtx.failed();
         }
 
@@ -226,6 +237,8 @@ export const postPublicTwoStepAuthorization = asyncWrapper<PostPublicTwoStepAuth
             environmentId: environment.id,
             metadata: { providerConfigKey, connectionId }
         });
+
+        metrics.increment(metrics.Types.AUTH_FAILURE, 1, { auth_mode: 'TWO_STEP' });
 
         next(err);
     }

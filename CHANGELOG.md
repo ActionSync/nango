@@ -2,6 +2,566 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.57.6] - 2025-03-26
+
+### Added
+
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/81232fa2f7ba4437afce3783fe2e67496bd8d865 by devin-ai-integration[bot]. Commit message: feat(bitdefender): add get-company-details action (#288) by @github-actions[bot]
+- *(integrations)* Add support for active campaign (#3773) by @hassan254-prog
+- *(ring-central)* Add retry-after parsing (#3778) by @khaliqgant
+
+### Changed
+
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/79f8071b446e46a65352fc2c7c6a942719e1c1f4 by lordsarcastic. Commit message: feat(github): push github sync to public templates (#260) by @github-actions[bot]
+- *(docs)* Clean up miro instructions (#3774) by @khaliqgant
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/2e48c6b3be900666e113cd74f1af78de17fbfb54 by Khaliq. Commit message: feat(ring-central): Ring central operations (#290) by @github-actions[bot]
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/f4678ca5ae168739b821ecb520fda00e3b84e6ff by devin-ai-integration[bot]. Commit message: feat: Add One Drive integration provider (#270) by @github-actions[bot]
+- 2 metrics about ingested records (#3781) by @TBonnin
+
+### Fixed
+
+- *(logging)* Remove log (#3775) by @khaliqgant
+- Connection is already deleted when executing pre-connection-deletion (#3772) by @TBonnin
+- Make Slack notifications aware of sync variants (#3771) by @TBonnin
+- *(cli)* Reup validation error message (#3779) by @bodinsamuel
+- *(api)* Split routes (#3776) by @bodinsamuel
+- *(runner-sdk)* Forward props in uncontrolledFetch (#3783) by @kaposke
+
+## [v0.57.5] - 2025-03-25
+
+### Added
+
+- Add comprehensive Quickbooks OAuth setup guide (#3693) by @devin-ai-integration[bot]
+
+### Changed
+
+- *(deploy)* Staging use unified image (#3767) by @bodinsamuel
+
+### Fixed
+
+- *(logs)* Buffer context, log oauth2 http calls (#3765) by @bodinsamuel
+- *(persist)* Only report the size and count of modified records (#3764) by @TBonnin
+- *(connection)* Decryption without a secret key would void credentials (#3769) by @bodinsamuel
+- *(api)* GET /api/v1/environment new format (#3766) by @bodinsamuel
+
+## [v0.57.4] - 2025-03-25
+
+### Added
+
+- *(credentials-check)* Add bitdefender verification script (#3760) by @khaliqgant
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/f2d2c6b9565c9fe84d72ae1503949d6fd3b8cd59 by Hassan_Wari. Commit message: feat(quickbooks): add write actions for journal entry (#285) by @github-actions[bot]
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/d2fd05d76c0c409bb37dddd8c451118a0d6e20e5 by Khaliq. Commit message: feat(databricks): add list warehouses action (#287) by @github-actions[bot]
+
+### Changed
+
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/ae0732ad718ce5910ef0e3890e4f304b62220870 by Khaliq. Commit message: feat(cursor+google-car): More cursor tweaks + settings action (#284) by @github-actions[bot]
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/37bbc8985fa36d0ab6368fd2c117cce780a638b2 by lordsarcastic. Commit message: feat(netsuite-tba): Add a fetch-fields action for netsuite-tba (#283) by @github-actions[bot]
+
+### Fixed
+
+- ShouldRefreshCredentials to return false if credentials_expires_at is set (#3754) by @TBonnin
+- *(runner)* Do not exit on unhandledRejection (#3756) by @TBonnin
+- *(guru-scim)* Update guru scim (#3757) by @khaliqgant
+- *(types)* Use nango standard config from types (#3759) by @khaliqgant
+- *(cron)* Unify error reporting, envs, logging (#3731) by @bodinsamuel
+- *(cron)* Delete all old data (#3712) by @bodinsamuel
+- *(cli)* Deduplicate records when using batchSave in CLI (#3761) by @hassan254-prog
+- Check record is not null in removeMetadata (#3758) by @TBonnin
+- *(ui)* Show correct message for credentials error (#3762) by @bodinsamuel
+- *(logs)* Do not fallback on unknown operation id (#3738) by @bodinsamuel
+- *(refresh)* Only update attempts once per day (#3736) by @bodinsamuel
+- *(refresh)* Short-circuit if exhausted, trycatch hooks (#3734) by @bodinsamuel
+- *(credentials)* Split JWT from connection (#3729) by @bodinsamuel
+- *(connection)* Merge issue (#3763) by @bodinsamuel
+- *(connect-ui)* Do not detect closed auth-window (#3755) by @hassan254-prog
+
+## [v0.57.3] - 2025-03-21
+
+### Added
+
+- *(integrations)* Add support for trakstar hire (#3752) by @hassan254-prog
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/bee0032882d7169ec818a79b56bb0c18a470c86c by devin-ai-integration[bot]. Commit message: feat(dropbox): add folder-content action (#267) by @github-actions[bot]
+
+### Changed
+
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/40232a42fa89e73045ce320640d3212dd1b340b3 by devin-ai-integration[bot]. Commit message: feat(google-drive): update schema for folder-content action (#268) by @github-actions[bot]
+- Credentials refresh & validity (#3739) by @bastienbeurier
+
+### Fixed
+
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/50a138a00917f508e60c929e2197ad7fc2f9c474 by Khaliq. Commit message: fix(google-drive): support all drives (#272) by @github-actions[bot]
+- *(CLI)* Nango.proxy should throw if request fails (#3753) by @TBonnin
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/4082e738d90d3501418d3c697e877f713157c6d4 by Khaliq. Commit message: fix(google-cal): minor cleanup and add whoami (#274) by @github-actions[bot]
+
+## [v0.57.2] - 2025-03-20
+
+### Added
+
+- Add comprehensive Zendesk OAuth setup guide (#3701) by @devin-ai-integration[bot]
+- Add comprehensive Intercom OAuth setup guide (#3695) by @devin-ai-integration[bot]
+- Add accountId dimension to execution duration metrics (#3711) by @TBonnin
+- *(hooks)* Reorder provider specific code under the provider instead of the type  (#3717) by @hassan254-prog
+- *(integrations)* Add support for Callrail (#3728) by @thomask
+- *(connect)* Allow authorization_params (#3726) by @bodinsamuel
+- *(connect)* Accept param detectClosedAuthWindow (#3732) by @bodinsamuel
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/f27ad9f14703a95af2af01868b718ace1a2c5b49 by Victor Lang'at. Commit message: feat: add Linkedin messages sync. (#263) by @github-actions[bot]
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/0c343e6a682f3807f56736dab1982267bb7d5a52 by devin-ai-integration[bot]. Commit message: feat(box): add folder-content action (#265) by @github-actions[bot]
+- Add comprehensive Jira OAuth setup guide (#3704) by @devin-ai-integration[bot]
+- Add comprehensive Confluence OAuth setup guide (#3705) by @devin-ai-integration[bot]
+- *(verification)* Add verification method for ghost admin (#3737) by @hassan254-prog
+- *(integrations)* Add support for figma scim (#3733) by @hassan254-prog
+- *(verification)* Add verification script for aws-iam (#3735) by @hassan254-prog
+
+### Changed
+
+- *(eslint)* Import order as warning (#3721) by @bodinsamuel
+- Slack notification sent via proxy instead of using an action (#3722) by @TBonnin
+
+### Fixed
+
+- *(logs)* Compute index name from operation id (#3719) by @bodinsamuel
+- *(verification)* Not all providers have a valid method or script (#3723) by @hassan254-prog
+- *(logs)* Catch parsing error (#3724) by @bodinsamuel
+- *(logs)* Remove usage of kvstore (#3725) by @bodinsamuel
+- *(connections)* Fill refresh columns, fix row_to_json types (#3718) by @bodinsamuel
+- *(refresh)* Incorrect condition for stale connections, missing expires_at for api_key (#3727) by @bodinsamuel
+- *(refresh)* Missing last_fetched_at update (#3730) by @bodinsamuel
+
+## [v0.57.1] - 2025-03-17
+
+### Added
+
+- *(persist)* Add accountId dimension to records metrics (#3676) by @TBonnin
+- Add accountId dimension to secretKey auth (#3678) by @TBonnin
+- Add GET /records metrics (#3677) by @TBonnin
+- *(providers)* Normalize credentials interpolation within providers (#3679) by @hassan254-prog
+- *(logs)* Add http duration and context (#3680) by @bodinsamuel
+- *(connect)* Telemetry (#3684) by @bodinsamuel
+- Add comprehensive Shopify OAuth setup guide (#3683) by @devin-ai-integration[bot]
+- *(integrations)* Add support for oracle fusion cloud hcm (#3694) by @hassan254-prog
+- Add metric for records total count per account (#3709) by @TBonnin
+- *(verification)* Make verification check more robust  (#3666) by @hassan254-prog
+- *(integrations)* Add support for microsoft client credentials (#3715) by @hassan254-prog
+- *(integrations)* Add support for pandadoc api key (#3716) by @hassan254-prog
+
+### Changed
+
+- Enterprise self-hosted improvements (#3670) by @bastienbeurier
+- Update architecture diagram (#3685) by @bastienbeurier
+- Cron job to export connection count metric to dd (#3686) by @TBonnin
+- Move AI use-cases to getting started section (#3689) by @rguldener
+- *(metrics)* We also want connections with syncs/actions/webhooks count (#3688) by @TBonnin
+- Disable Slack notification by @TBonnin
+- Pass accountId to log context to use it in metrics (#3710) by @TBonnin
+
+### Fixed
+
+- Fix real-time sync docs info (#3673) by @bastienbeurier
+- *(ui)* Logs duration format, timestamp format (#3675) by @bodinsamuel
+- *(verification)* Fix verification for unipile (#3682) by @hassan254-prog
+- *(logs)* Put date in operation id (#3687) by @bodinsamuel
+- Remove withSchema in query by @TBonnin
+- *(jobs)* Drop where deleted index (#3681) by @bodinsamuel
+- *(cron)* Delete old data (#3690) by @bodinsamuel
+- *(logs)* Set auth operation as cancelled when expired (#3691) by @bodinsamuel
+- *(db)* Drop unused table schedules  (#3692) by @bodinsamuel
+- Use knex Transaction for all queries within a transaction (#3714) by @TBonnin
+- *(connection)* Split refresh function (#3674) by @bodinsamuel
+- *(node)* Remove leftover console.log (#3720) by @bodinsamuel
+
+## [v0.57.0] - 2025-03-12
+
+### Added
+
+- *(integrations)* Add support for razorpay (#3650) by @hassan254-prog
+- *(jobs)* Add index without deleted (#3651) by @bodinsamuel
+- *(integrations)* Add anthropic admin (#3645) by @viictoo
+- *(connect)* Store operation_id in DB (#3661) by @bodinsamuel
+- *(integrations)* Add support for tldv (#3659) by @hassan254-prog
+- *(link-pagination)* Add in baseUrlOverride (#3665) by @khaliqgant
+- *(insights)* Add auth graph, show all states (#3663) by @bodinsamuel
+- *(integration)* Add missive support (#3664) by @miles-kt-inkeep
+- *(providers)* Add verification endpoints (untested) (#3643) by @viictoo
+- *(providers)* Add api verification endpoint (3 of 6) (#3642) by @viictoo
+- *(providers)* Connect ui documentation (1 of 10) (#3648) by @lordsarcastic
+- Add AI use-cases link, improve services page, avoid duplicating real-time sync pages (#3668) by @bastienbeurier
+- *(sdk)* Allow a sync to be started from the sdk (#3671) by @khaliqgant
+- *(cli-deploy)* Deploy scripts for a specific api (#3660) by @viictoo
+- *(integrations)* Add support for readwise and readwise reader (#3669) by @hassan254-prog
+
+### Changed
+
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/7a63ea86f4ec62b2370f93ca1acf894204554b30 by lordsarcastic. Commit message: feat(linear): GraphQL introspection (#254) by @github-actions[bot]
+- *(deps)* Bump axios from 1.7.9 to 1.8.2 (#3646) by @dependabot[bot]
+- Differentate runner database url (#3644) by @TBonnin
+
+### Fixed
+
+- *(otlp)* Manual span by @bodinsamuel
+- Show model in sync webhook log operation (#3641) by @TBonnin
+- *(logs)* Do not await more logs  (#3649) by @bodinsamuel
+- *(ui)* Tag padding, and SyncRow alignment (#3657) by @bodinsamuel
+- *(auth)* Log endUser (#3656) by @bodinsamuel
+- Set missing application_name in knex connection config (#3658) by @TBonnin
+- *(es)* Prepare fields for duration and context (#3655) by @bodinsamuel
+- *(connection)* Store metadata for refresh  (#3653) by @bodinsamuel
+- *(logs)* Stop awaiting logs (#3654) by @bodinsamuel
+- *(jobs)* Remove usage of deleted (#3652) by @bodinsamuel
+- *(otlp)* Manual span (#3647) by @bodinsamuel
+- *(webhooks)* Use same retry and logging as proxy (#3662) by @bodinsamuel
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/31bf1d42bcb17db1818e84163da38595dfc9a333 by Khaliq. Commit message: fix(compilation-test): resolve all aliases before compiling (#259) by @github-actions[bot]
+
+## [v0.56.4] - 2025-03-07
+
+### Fixed
+
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/7d8ef4a445a02c6f8c4da217952cc0cb488e94f9 by Khaliq. Commit message: fix(schema): Schema should always be updated (#255) by @github-actions[bot]
+- *(cli)* Add metadata section for docs (#3640) by @khaliqgant
+
+## [v0.56.3] - 2025-03-07
+
+### Fixed
+
+- *(cli-deploy)* Concurrent deployment throws an error and ruins future (#3639) by @khaliqgant
+
+## [v0.56.2] - 2025-03-07
+
+### Added
+
+- *(docs)* Document sync variant in docs reference (#3607) by @TBonnin
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/0172dcf2019baf9c98b7c5f59f224d6fb444350f by Victor Lang'at. Commit message: feat(google-drive): add fetch-folders and upload-document actions; en… (#248) by @github-actions[bot]
+- Add sigint and sigterm support for all services (#3620) by @bodinsamuel
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/31eacd0661a1cbbd151accef42b41632d5ba0b53 by Khaliq. Commit message: feat(gorgias): add symlink (#243) by @github-actions[bot]
+- *(veriifcation)* [nan-2856] additional scim verification checks (#3627) by @khaliqgant
+- *(http)* Add env to change agent (#3597) by @bodinsamuel
+- Add sentry again (#3623) by @bodinsamuel
+- *(integrations)* Add support for sharepoint online v2 oauth2_cc (#3633) by @hassan254-prog
+- *(generate:docs)* Add specific option for integration templates (#3638) by @khaliqgant
+
+### Changed
+
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/c0b1166087c87bc71acd6a477c9ea2450a7b4980 by devin-ai-integration[bot]. Commit message: refactor: replace zod validation pattern with nango.zodValidateInput() (#240) by @github-actions[bot]
+- 300+ to 400+ APIs (#3637) by @bastienbeurier
+
+### Fixed
+
+- Refactor script result handler (#3621) by @TBonnin
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/a53b152611212714834516f56c78fc8737154403 by Khaliq. Commit message: fix(microsoft-teams): fix pagination and org unit (#250) by @github-actions[bot]
+- *(provider)* Fix mip (#3624) by @hassan254-prog
+- Fixing typographical errors (#3612) by @clarencepenz
+- *(es)* Make nullable fields undefinable, dissociate Message and Operation (#3548) by @bodinsamuel
+- *(oauth2)* Fix authorization params miss interpolation logic (#3628) by @hassan254-prog
+- *(oauth)* Improve callback html response  (#3626) by @bodinsamuel
+- *(kvstore)* Move feature flags to dedicated package  (#3625) by @bodinsamuel
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/914da07de9a9ceded03d5db81183901b39ff4bd0 by Khaliq. Commit message: fix(hubspot): clean up typing (#252) by @github-actions[bot]
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/5c6b4c01169363dd0b49da58f830772e116bfc91 by Khaliq. Commit message: fix(schema): bump the version (#253) by @github-actions[bot]
+- *(mip)* Update token response interpolation (#3630) by @hassan254-prog
+- *(kvstore)* Move Locking (#3631) by @bodinsamuel
+- Fail action when output is >10mb (#3629) by @TBonnin
+- *(agent)* Better default for axios (#3632) by @bodinsamuel
+- *(telemetry)* Remove logs (#3635) by @bodinsamuel
+- *(es)* Do not wait some calls, change sharding (#3634) by @bodinsamuel
+- *(syncConfig)* Runs is nullable, not models  (#3636) by @bodinsamuel
+
+## [v0.56.1] - 2025-03-04
+
+### Added
+
+- *(integrations)* Add support for blackbaud basic (#3616) by @hassan254-prog
+
+### Fixed
+
+- *(db)* Clean up models, use read-only for more calls (#3613) by @bodinsamuel
+- *(zod-validation)* Return the parsed zod (#3622) by @khaliqgant
+
+## [v0.56.0] - 2025-03-04
+
+### Added
+
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/71af92e2df493bcaada30310cb1de04f17252315 by Victor Lang'at. Commit message: feat(outlook): add calendars and events sync (#241) by @github-actions[bot]
+- *(cli)* Dynamically load extraneous dependency (#3601) by @bodinsamuel
+- *(cli-docs)* Cli command to generate integration readme files (#3614) by @khaliqgant
+- *(cron)* Delete old jobs data  (#3619) by @bodinsamuel
+
+### Changed
+
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/8d6f366ac10909f31486123e808403e935884bb8 by Khaliq. Commit message: feat(paylocity): Add paylocity (#244) by @github-actions[bot]
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/2001c1fd1c40ed7ec49f76ee0fccbe527a3d7891 by Daniel Roy Lwetabe. Commit message: feat(box): file sync (#235) by @github-actions[bot]
+- Add Feb changelog + update popular APIs (#3610) by @bastienbeurier
+
+### Fixed
+
+- Remove usage of getEndUserByConnectionId (#3609) by @TBonnin
+- *(db)* Allow using read-only replica (#3605) by @bodinsamuel
+- *(db)* Use read-only for getProviderConfig (#3611) by @bodinsamuel
+- *(telemetry)* Remove unused logs (#3599) by @bodinsamuel
+- *(api)* GET /scripts/config (#3598) by @bodinsamuel
+- Temporary disabling actions slack and bigquery reporting (#3615) by @TBonnin
+- *(runner-sdk)* Support variant in getRecordsByIds (#3608) by @TBonnin
+- *(gorgias-api)* Remove api so can have parity (#3603) by @khaliqgant
+- *(figma)* Update token requests method and endpoints (#3618) by @hassan254-prog
+
+## [v0.55.0] - 2025-02-28
+
+### Added
+
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/49a5924e33dfbd90019b0ee4889267611cd03b42 by Hassan_Wari. Commit message: feat(sage-intacct): add accounts sync (#230) by @github-actions[bot]
+- Add support for mip (#3556) by @viictoo
+- *(integrations)* Add support for quickbase (#3570) by @viictoo
+- *(integrations)* Add support for openai admin keys (#3573) by @viictoo
+- Modify /sync/ API endpoints to support variant (#3567) by @TBonnin
+- Add support for variant when fetching records (#3569) by @TBonnin
+- *(node-client)* Add support for sync variants (#3568) by @TBonnin
+- Add redirect url instruction to quickstart (#3574) by @kaposke
+- *(docs)* Google drive documentation improvements (#3571) by @viictoo
+- *(integrations)* Improvements and fixes - openai administration docs (#3583) by @viictoo
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/cc191be294b00835509cd3b084c52413fdf1e201 by Khaliq. Commit message: feat(updated-at): add updatedAt to the drive sync (#236) by @github-actions[bot]
+- *(cli)* Log http calls (#3581) by @bodinsamuel
+- Add support for sync variant in runner-sdk/cli (#3582) by @TBonnin
+- *(integrations)* Add support for check (#3553) by @dannylwe
+- Expore variant in nango sync webhook (#3589) by @TBonnin
+- *(oauth)* Add a configurable code parameter for oauth2 in the callback url (#3593) by @hassan254-prog
+- *(ui)* Show sync variant on connections page (#3588) by @TBonnin
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/2c9acd0392d5cec68e7c6e2ecc7f221a15c5b8fd by Victor Lang'at. Commit message: feat(integrations): add folders  & labels sync (#237) by @github-actions[bot]
+- *(integrations)* Add support for lemlist (#3591) by @hassan254-prog
+- *(integrations)* Fixes for mip: add separate on prem and cloud provider (#3585) by @viictoo
+- Add API endpoints and functions to create/delete sync variants (#3600) by @TBonnin
+
+### Changed
+
+- Create popular category for APIs (#3584) by @bastienbeurier
+- Update popular APIs (#3592) by @bastienbeurier
+- Update retry strategy (#3596) by @bodinsamuel
+- Clarify the difference between sharepoint v1 and v2 (#3602) by @hassan254-prog
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/6c11a188e1033fa81643ac561da82dea7324f530 by Victor Lang'at. Commit message: chore: update gorgias types (#238) by @github-actions[bot]
+
+### Fixed
+
+- *(connection)* Import should reset auth errors (#3558) by @bodinsamuel
+- *(orchestrator)* Return 408 on timeout (#3537) by @bodinsamuel
+- *(proxy)* Remove token from payload, rewrite headers building (#3557) by @bodinsamuel
+- *(compile-error)* Remove unneeded conditions (#3572) by @khaliqgant
+- *(integrations)* Fix authorization url for amazon selling partner (#3575) by @hassan254-prog
+- *(ui)* Change switch color, scroll to settings (#3577) by @bodinsamuel
+- *(ui)* Display script name on template page (#3576) by @bodinsamuel
+- *(proxy)* Upload file as binary (#3551) by @hassan254-prog
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/65024747895e5b17dd87cdfaef28dfaaf19e184b by Khaliq. Commit message: fix(basecamp-types): type fixes (#234) by @github-actions[bot]
+- *(proxy)* Refresh connection between retries  (#3566) by @bodinsamuel
+- *(proxy)* Refresh connection between retries (again) (#3587) by @bodinsamuel
+- *(api)* Reup otlp check (#3586) by @bodinsamuel
+- *(ui)* Use singular for operation type (#3579) by @bodinsamuel
+- *(ui)* Show endpoint types (#3578) by @bodinsamuel
+- *(api)* Redac logged headers when calling v1/ (#3580) by @bodinsamuel
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/90e3f5fccc4e484aace20a89b4d16347a1da8918 by Khaliq. Commit message: fix(g-cal): tighten up types (#239) by @github-actions[bot]
+- *(logs)* Make drawer selectable (#3595) by @bodinsamuel
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/49885316fc606079fd36f2d19a9e267c0921a662 by Khaliq. Commit message: fix(gorgias): Fix endpoint (#242) by @github-actions[bot]
+- *(db)* Parametrize pool size  (#3604) by @bodinsamuel
+- *(fleet)* Do not fetch next page if no more nodes (#3606) by @TBonnin
+
+## [v0.54.0] - 2025-02-24
+
+### Added
+
+- *(zod-validation)* Add built in zod validation helper (#3423) by @khaliqgant
+- *(integrations)* Add support for airtable pat (#3545) by @hassan254-prog
+- *(records)* Use read replicas when possible (#3546) by @bodinsamuel
+- *(es)* Add indexed retry object for http logs (#3543) by @bodinsamuel
+- *(proxy)* Full rewrite, controlled backoff, better logging, shared logic, etc. (#3540) by @bodinsamuel
+- Add categories to Netsuite TBA API (#3552) by @bastienbeurier
+- *(guru-scim)* Add missing headers (#3549) by @dannylwe
+- *(integrations)* Add support for sage-intacct-oauth-support (#3547) by @hassan254-prog
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/5f29fa5fc99c08095484475335272fad17b98ed9 by Victor Lang'at. Commit message: feat(netsuite-tba): add netsuite actions (#226) by @github-actions[bot]
+- *(gorgias-basic)* Add support for gorgias auth (#3554) by @dannylwe
+- *(integrations)* Add support for amazon selling partner api (#3538) by @hassan254-prog
+- *(integrations)* Add support for appstle-subscriptions (#3559) by @hassan254-prog
+- *(sdk)* Add uncontrolledFetch (#3564) by @bodinsamuel
+
+### Changed
+
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/8a200cf137b88e4ff1cea948b24122548cabbe5c by Hassan_Wari. Commit message: feat(netsuite): update syncs to incremental (#225) by @github-actions[bot]
+- *(deps-dev)* Bump vitest from 2.1.8 to 2.1.9 (#3544) by @dependabot[bot]
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/9a101f7434dd1ed4a80fb2ccc358db5897fe19bf by Hassan_Wari. Commit message: feat(shopify): orders sync (#227) by @github-actions[bot]
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/38595e571ef708d7057c2bd674d6cc2cb4967efb by Daniel Roy Lwetabe. Commit message: feat(dropbox): document sync should have modified date (#228) by @github-actions[bot]
+
+### Fixed
+
+- Fix python snippet in webhook verification docs (#3541) by @bastienbeurier
+- Fix frontend docs (#3539) by @bastienbeurier
+- *(types)* Move proxy to pkg  (#3542) by @bodinsamuel
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/3fc19d74a8d80c9241765feb77824c5499d2f795 by Khaliq. Commit message: fix(confluence): confluence type issue (#231) by @github-actions[bot]
+- *(basecamp)* Assign accountId if only one (#3555) by @khaliqgant
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/3930f76c4f104c09eb8d696568ab9d00abea8fb7 by Khaliq. Commit message: fix(basecamp): bump versions (#233) by @github-actions[bot]
+- *(metadata-stub)* Override metadata if coming from getConnection (#3565) by @khaliqgant
+
+## [v0.53.2] - 2025-02-19
+
+### Added
+
+- *(sdk)* Ignore _nango_metadata field in batchSave, batchUpdate, batchDelete (#3513) by @nalanj
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/120d94fee1f01ecb7dcbfc62d69d5b5093008821 by Khaliq. Commit message: fix(scopes): add more explicit scopes (#216) by @github-actions[bot]
+- *(integrations)* Whitelist unzipper package (#3445) by @hassan254-prog
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/430b033a09eaaa10852e517a39513abb4d29454f by Victor Lang'at. Commit message: feat(brightcrowd): add sync  for books and pages (#214) by @github-actions[bot]
+- Add guide to document setMergingStrategy (#3426) by @TBonnin
+- Introduce sync variant (#3521) by @TBonnin
+- *(runner)* GetObjectsById (#3475) by @nalanj
+- *(sync variant)* Add sync variant to schedule and nangoProps (#3522) by @TBonnin
+- *(docs)* Started on docs for getRecordsById (#3525) by @nalanj
+- *(integrations)* Add support for jira data center api key (#3524) by @hassan254-prog
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/63f5660d9ea0daaf0eb172cb45a671730c15616d by Khaliq. Commit message: feat(.nango): add .nango directory (#221) by @github-actions[bot]
+- *(pagination)* Add support for dot notation in the body (#3533) by @khaliqgant
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/15f347fc31e313187510eacf64776de1bee25b6a by Victor Lang'at. Commit message: feat(quickbooks): add create bill and create purchase order actions (#223) by @github-actions[bot]
+- *(guru-scim)* Add provider support (#3534) by @dannylwe
+
+### Changed
+
+- Add integration counts to webflow sync (#3506) by @nalanj
+- Add script to automate changelog generation for providers (#3517) by @nalanj
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/faf3fb9c6a79231c7907524dbe13ca724c99423c by Khaliq. Commit message: feat(google-drive): output the mimeType (#218) by @github-actions[bot]
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/100844ca03f7615d11f115c743294599a7dcdd6a by Khaliq. Commit message: feat(google-drive): Add root level sync (#219) by @github-actions[bot]
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/be37b30de5b50a93196ab51de9b369c2727d3031 by Khaliq. Commit message: feat(google-docs): update actions (#220) by @github-actions[bot]
+- A patch to fix typographical and grammatical errors (#3527) by @clarencepenz
+- *(dd)* Try to change some spampling (#3518) by @bodinsamuel
+- Integrations changelog (#3526) by @nalanj
+- Update basic auth configuration field names 1 of 3 (#3532) by @viictoo
+
+### Fixed
+
+- *(records)* Wrong nextMerging cursor when last record was not updated (#3499) by @TBonnin
+- *(persist)* Filter external ids to remove 0x00 (#3498) by @nalanj
+- *(logs)* Ignore irrelevant headers in HTTP message (#3504) by @bodinsamuel
+- Set orchestrator and jobs request size limit to 10mb (#3484) by @TBonnin
+- *(logs)* Unify HTTP logs and retry (#3503) by @bodinsamuel
+- Authenticate memory warning logs from runner to persist (#3507) by @TBonnin
+- Wait for 10 successes to consider a runner healthy (#3505) by @TBonnin
+- *(sdk)* Lower sample for validation error (#3508) by @bodinsamuel
+- *(unauthenticated)* Allow connection config to be created (#3512) by @khaliqgant
+- 10 successful reqs to runner /healthy for cloud only (#3510) by @TBonnin
+- *(tracing)* Tag usr across the infra (#3511) by @bodinsamuel
+- *(webapp)* Log operation tooltips (#3514) by @nalanj
+- *(shortcut)* Fix verification link (#3520) by @khaliqgant
+- Pause schedules when disabling integration (#3519) by @TBonnin
+- *(webapp)* Fix mistake where I mixed up icons (#3523) by @nalanj
+- *(rateLimit)* Improve compute strategy (#3516) by @bodinsamuel
+- *(logs)* Correctly identify internal logs (#3515) by @bodinsamuel
+- *(ui)* Env settings design feedback (#3509) by @bodinsamuel
+- *(ui)* Table row hover (#3528) by @bodinsamuel
+- *(ui)* Inline script configuration (#3529) by @bodinsamuel
+- *(logs)* Missing created_at in sdk logs (#3531) by @bodinsamuel
+- *(connectionRefresh)* Force salesforce refresh on error, add metrics (#3530) by @bodinsamuel
+- *(dd)* Track webhook with metrics (#3535) by @bodinsamuel
+- *(logs)* Ignore more headers in http logs (#3536) by @bodinsamuel
+
+## [v0.53.1] - 2025-02-11
+
+### Added
+
+- *(persist)* Add endpoint to get records (#3463) by @nalanj
+- Runner use new image (#3468) by @bodinsamuel
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/5ccdb8a0cfc1f9d972bd25aee1dbb4a1efa97dc2 by Andrew Karanja. Commit message: feat(basecamp): added fetch-todolists action (#213) by @github-actions[bot]
+- *(server)* Separate auth related webhooks into their own log context (#3427) by @nalanj
+- *(persist)* Add support for activityLogId to get records endpoint (#3476) by @nalanj
+- *(connection)* Add span on refresh credentials (#3482) by @bodinsamuel
+- *(web)* Refine logs display in UI (#3481) by @nalanj
+- *(loom-scim)* Provider support (#3488) by @AndrewKaranja
+- *(paylocity)* Paylocity support (#3492) by @AndrewKaranja
+- *(integrations)* Add support for rippling (#3501) by @hassan254-prog
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/7fa2654b348debd340494149baab849011692b00 by Khaliq. Commit message: feat(recharge): add email (#215) by @github-actions[bot]
+- *(integrations)* Add support for salesforce cdp (#3363) by @hassan254-prog
+- *(1password-scim)* Support for 1password-scim (#3486) by @AndrewKaranja
+
+### Changed
+
+- New Slack channel to request new APIs (#3477) by @bastienbeurier
+- Standardize providers.yaml display names (#3478) by @bastienbeurier
+- Document how to show list of integrations in the Connect UI (#3480) by @bastienbeurier
+- Document HTTP request retry behavior (#3489) by @bastienbeurier
+- *(zapier)* Broken image link (#3495) by @viictoo
+- Document re-authorization flow (#3491) by @bastienbeurier
+- *(deps-dev)* Bump esbuild from 0.17.19 to 0.25.0 (#3500) by @dependabot[bot]
+- Typographical error (#3502) by @clarencepenz
+
+### Fixed
+
+- *(runner-sdk)* Catch void this.log (#3474) by @TBonnin
+- *(ui)* Connection create, re-up integration list (#3479) by @bodinsamuel
+- Decrypt provider config in refreshConnections (#3485) by @TBonnin
+- Fix typographical error (#3487) by @clarencepenz
+- *(types)* Connection -> DBConnection (#3470) by @bodinsamuel
+- *(connection)* Incorrect connection id (#3497) by @bodinsamuel
+- Fix typo in frontend.mdx (#3494) by @spookyuser
+- *(docker)* Stop building runner (#3490) by @bodinsamuel
+- *(persist)* Correct validation and types (#3483) by @TBonnin
+- *(jobs)* Logs track_deletes results (#3493) by @bodinsamuel
+
+## [v0.53.0] - 2025-02-06
+
+### Added
+
+- *(persist)* Enable filtering records by external id (#3458) by @nalanj
+- *(sap-concur)* SAP Concur provider support (#3453) by @AndrewKaranja
+- *(support)* Add support for Gemini integration (#3336) by @Maina-Francis
+- *(api)* Get records by IDs (#3466) by @bodinsamuel
+
+### Changed
+
+- *(fleet)* Simplify node config overrides (#3450) by @TBonnin
+- *(fleet)* Remove deployment commit_id column (#3451) by @TBonnin
+- *(plain)* Connect ui docs for plain (#3465) by @hassan254-prog
+- *(minimax)* Updated minimax provider yaml. (#3464) by @AndrewKaranja
+- Node client get records by ids (#3471) by @bodinsamuel
+
+### Fixed
+
+- *(shared)* Keep agents from cloning in simple-oauth2 (#3447) by @nalanj
+- *(ui)* Display correct sync type  (#3454) by @bodinsamuel
+- *(db)* Sync_type casing (#3456) by @bodinsamuel
+- *(shared)* Clean up agent config stuff (#3457) by @nalanj
+- *(api)* GET /records new format (#3448) by @bodinsamuel
+- *(api)* Get records filter should accept uppercase and combined (#3460) by @bodinsamuel
+- *(webhooks)* Remove webhook response body from webhook logging (#3462) by @nalanj
+- *(ui)* Correct field when updating webhooks secondary url (#3461) by @bodinsamuel
+- *(types)* SyncConfig -> DBSyncConfig (#3459) by @bodinsamuel
+- *(integration-template-tests)* Remove output and content length header (#3467) by @khaliqgant
+- *(docs)* Warn on docs mismatch, and update providers to remove all warnings (#3469) by @nalanj
+- *(npm)* Put types pkg as prod dependency (#3473) by @bodinsamuel
+- *(cron)* Automatic refresh token was not passing decrypted connection (#3472) by @bodinsamuel
+
+## [v0.52.5] - 2025-02-05
+
+### Added
+
+- *(ui)* Environment settings revamp (#3432) by @bodinsamuel
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/184791e39a290d706aaf92b04042f0bc7feb9d31 by Khaliq. Commit message: fix(recharge): add subscription id (#211) by @github-actions[bot]
+- *(docs)* Backfill missing docs due to multiple providers for same API (#3403) by @nalanj
+- *(minimax)* Added minimax support (#3364) by @AndrewKaranja
+- *(basecamp)* Store basecamp response in the connection config (#3455) by @khaliqgant
+- *(integration-templates)* Automated commit updating flows.yaml based on changes in https://github.com/NangoHQ/integration-templates/commit/08cd7cb0ea8fb6a1908fe8b645f67abf27a0af67 by Khaliq. Commit message: feat(basecamp): add action to do a user lookup (#212) by @github-actions[bot]
+
+### Changed
+
+- Cleanup legacy runner management (#3425) by @TBonnin
+- Clarify integration steps (#3435) by @bastienbeurier
+- Show connect UI gif (#3436) by @bastienbeurier
+- Be more explicit about callback URL redirect safeguards (#3439) by @bastienbeurier
+- Fleet improvements (#3438) by @TBonnin
+- Bump vitest to 2.1.9 (#3449) by @nalanj
+
+### Fixed
+
+- Fleet to fetch all nodes at once (#3429) by @TBonnin
+- Deel provider (#3434) by @TBonnin
+- *(server)* Log instance id from render instead of random id and catch unhandled (#3433) by @nalanj
+- *(tests)* Test forwardWebhook (#3424) by @nalanj
+- *(server)* Only log last part of instance id for render (#3437) by @nalanj
+- *(server)* Put whitespace in front of instance id, if it's there (#3440) by @nalanj
+- *(server)* Override agent toJSON (#3441) by @nalanj
+- *(ui)* Env settings should reset on switching env (#3442) by @bodinsamuel
+- *(docs)* PauseSync fix (#3443) by @khaliqgant
+- Set Slack scope_separator to comma (#3430) by @mpotter
+- Always update logo when updating apis in webflow (#3446) by @nalanj
+- *(ui)* Feedback env settings page (#3444) by @bodinsamuel
+- *(cli)* Fix dryrun bug after shared removal (#3452) by @nalanj
+
 ## [v0.52.4] - 2025-02-03
 
 ### Added
@@ -2954,6 +3514,24 @@ All notable changes to this project will be documented in this file.
 - Update Zendesk Chat configuration file (#161) by @Frenchcooc
 - APIs using client_credentials as grant type (#165) by @Frenchcooc
 
+[v0.57.6]: https://github.com/NangoHQ/nango/compare/v0.57.5..v0.57.6
+[v0.57.5]: https://github.com/NangoHQ/nango/compare/v0.57.4..v0.57.5
+[v0.57.4]: https://github.com/NangoHQ/nango/compare/v0.57.3..v0.57.4
+[v0.57.3]: https://github.com/NangoHQ/nango/compare/v0.57.2..v0.57.3
+[v0.57.2]: https://github.com/NangoHQ/nango/compare/v0.57.1..v0.57.2
+[v0.57.1]: https://github.com/NangoHQ/nango/compare/v0.57.0..v0.57.1
+[v0.57.0]: https://github.com/NangoHQ/nango/compare/v0.56.4..v0.57.0
+[v0.56.4]: https://github.com/NangoHQ/nango/compare/v0.56.3..v0.56.4
+[v0.56.3]: https://github.com/NangoHQ/nango/compare/v0.56.2..v0.56.3
+[v0.56.2]: https://github.com/NangoHQ/nango/compare/v0.56.1..v0.56.2
+[v0.56.1]: https://github.com/NangoHQ/nango/compare/v0.56.0..v0.56.1
+[v0.56.0]: https://github.com/NangoHQ/nango/compare/v0.55.0..v0.56.0
+[v0.55.0]: https://github.com/NangoHQ/nango/compare/v0.54.0..v0.55.0
+[v0.54.0]: https://github.com/NangoHQ/nango/compare/v0.53.2..v0.54.0
+[v0.53.2]: https://github.com/NangoHQ/nango/compare/v0.53.1..v0.53.2
+[v0.53.1]: https://github.com/NangoHQ/nango/compare/v0.53.0..v0.53.1
+[v0.53.0]: https://github.com/NangoHQ/nango/compare/v0.52.5..v0.53.0
+[v0.52.5]: https://github.com/NangoHQ/nango/compare/v0.52.4..v0.52.5
 [v0.52.4]: https://github.com/NangoHQ/nango/compare/v0.52.3..v0.52.4
 [v0.52.3]: https://github.com/NangoHQ/nango/compare/v0.52.2..v0.52.3
 [v0.52.2]: https://github.com/NangoHQ/nango/compare/v0.52.1..v0.52.2

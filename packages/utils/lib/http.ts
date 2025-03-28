@@ -1,3 +1,45 @@
+// Headers that are never relevant to the outcome of the call
+const IGNORED_HEADERS = new Set([
+    'access-control-allow-credentials',
+    'access-control-allow-headers',
+    'access-control-allow-methods',
+    'access-control-allow-origin',
+    'access-control-expose-headers',
+    'alt-svc',
+    'cf-ray',
+    'cf-cache-status',
+    'connection',
+    'content-security-policy',
+    'content-security-policy-report-only',
+    'cookie',
+    'keep-alive',
+    'nel',
+    'permissions-policy',
+    'referrer-policy',
+    'report-to',
+    'server',
+    'server-timing',
+    'set-cookie',
+    'strict-transport-security',
+    'timing-allow-origin',
+    'vary',
+    'x-amzn-trace-id',
+    'x-amz-cf-id',
+    'x-amz-cf-pop',
+    'x-amzn-requestid',
+    'x-cache',
+    'x-backend',
+    'x-content-type-options',
+    'x-dns-prefetch-control',
+    'x-download-options',
+    'x-edge-backend',
+    'x-frame-options',
+    'x-hubspot-correlation-id',
+    'x-powered-by',
+    'x-server',
+    'x-xss-protection'
+]);
+
 export function redactHeaders({
     headers,
     headersToFilter = [],
@@ -9,7 +51,11 @@ export function redactHeaders({
 
     const safeHeaders: Record<string, string> = {};
     for (const key of Object.keys(headers)) {
-        safeHeaders[key.toLocaleLowerCase()] = String(headers[key]);
+        const lowerKey = key.toLocaleLowerCase();
+        if (IGNORED_HEADERS.has(lowerKey)) {
+            continue;
+        }
+        safeHeaders[lowerKey] = String(headers[key]);
     }
 
     if (safeHeaders['authorization']) {
@@ -17,8 +63,9 @@ export function redactHeaders({
     }
 
     for (const key of headersToFilter) {
-        if (safeHeaders[key.toLocaleLowerCase()]) {
-            safeHeaders[key.toLocaleLowerCase()] = 'REDACTED';
+        const lowerKey = key.toLocaleLowerCase();
+        if (safeHeaders[lowerKey]) {
+            safeHeaders[lowerKey] = 'REDACTED';
         }
     }
 

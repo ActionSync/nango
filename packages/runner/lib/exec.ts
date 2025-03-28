@@ -1,4 +1,3 @@
-import { SpanTypes } from '@nangohq/shared';
 import { isAxiosError } from 'axios';
 import { Buffer } from 'buffer';
 import * as vm from 'node:vm';
@@ -7,9 +6,10 @@ import * as crypto from 'crypto';
 import * as zod from 'zod';
 import * as soap from 'soap';
 import * as botbuilder from 'botbuilder';
+import * as unzipper from 'unzipper';
 import tracer from 'dd-trace';
 import { errorToObject, metrics, truncateJson } from '@nangohq/utils';
-import { logger } from './utils.js';
+import { logger } from './logger.js';
 import type { NangoProps, RunnerOutput } from '@nangohq/types';
 import { instrumentSDK, NangoActionRunner, NangoSyncRunner } from './sdk/sdk.js';
 import type { NangoActionBase, NangoSyncBase } from '@nangohq/runner-sdk';
@@ -46,7 +46,7 @@ export async function exec(
 
     const filename = `${nangoProps.syncConfig.sync_name}-${nangoProps.providerConfigKey}.js`;
 
-    return await tracer.trace<Promise<RunnerOutput>>(SpanTypes.RUNNER_EXEC, async (span) => {
+    return await tracer.trace<Promise<RunnerOutput>>('nango.runner.exec', async (span) => {
         span.setTag('accountId', nangoProps.team?.id)
             .setTag('environmentId', nangoProps.environmentId)
             .setTag('connectionId', nangoProps.connectionId)
@@ -71,6 +71,8 @@ export async function exec(
                             return botbuilder;
                         case 'soap':
                             return soap;
+                        case 'unzipper':
+                            return unzipper;
                         default:
                             throw new Error(`Module '${moduleName}' is not allowed`);
                     }

@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import { asyncWrapper } from '../../../../utils/asyncWrapper.js';
 import { requireEmptyBody, zodErrorToHTTP } from '@nangohq/utils';
-import type { DBConnection, GetConnection } from '@nangohq/types';
-import { connectionService, configService, errorNotificationService } from '@nangohq/shared';
+import type { GetConnection } from '@nangohq/types';
+import { connectionService, configService, errorNotificationService, refreshOrTestCredentials } from '@nangohq/shared';
 import { connectionRefreshFailed as connectionRefreshFailedHook, connectionRefreshSuccess as connectionRefreshSuccessHook } from '../../../../hooks/hooks.js';
 import { logContextGetter } from '@nangohq/logs';
 import { connectionIdSchema, envSchema, providerConfigKeySchema } from '../../../../helpers/validation.js';
@@ -73,7 +73,7 @@ export const getConnection = asyncWrapper<GetConnection>(async (req, res) => {
     let connection = connectionRes.value.connection;
     const endUser = connectionRes.value.end_user;
 
-    const credentialResponse = await connectionService.refreshOrTestCredentials({
+    const credentialResponse = await refreshOrTestCredentials({
         account,
         environment,
         connection,
@@ -87,12 +87,12 @@ export const getConnection = asyncWrapper<GetConnection>(async (req, res) => {
     if (credentialResponse.isOk()) {
         connection = credentialResponse.value;
     }
-    const errorLog = await errorNotificationService.auth.get(connection.id!);
+    const errorLog = await errorNotificationService.auth.get(connection.id);
 
     res.status(200).send({
         data: {
             provider: integration.provider,
-            connection: connectionFullToApi(connection as DBConnection),
+            connection: connectionFullToApi(connection),
             endUser: endUserToApi(endUser),
             errorLog
         }

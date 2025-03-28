@@ -1,14 +1,18 @@
+import { z } from 'zod';
+
+import db from '@nangohq/database';
+import * as keystore from '@nangohq/keystore';
+import { defaultOperationExpiration, endUserToMeta, logContextGetter } from '@nangohq/logs';
+import { configService, upsertEndUser } from '@nangohq/shared';
+import { requireEmptyQuery, zodErrorToHTTP } from '@nangohq/utils';
+
+import { providerConfigKeySchema } from '../../helpers/validation.js';
+import * as connectSessionService from '../../services/connectSession.service.js';
+import { asyncWrapper } from '../../utils/asyncWrapper.js';
+
+import type { Config } from '@nangohq/shared';
 import type { PostConnectSessions } from '@nangohq/types';
 import type { ZodIssue } from 'zod';
-import { z } from 'zod';
-import db from '@nangohq/database';
-import { asyncWrapper } from '../../utils/asyncWrapper.js';
-import * as keystore from '@nangohq/keystore';
-import * as connectSessionService from '../../services/connectSession.service.js';
-import { requireEmptyQuery, zodErrorToHTTP } from '@nangohq/utils';
-import type { Config } from '@nangohq/shared';
-import { configService, upsertEndUser } from '@nangohq/shared';
-import { providerConfigKeySchema } from '../../helpers/validation.js';
 
 export const bodySchema = z
     .object({
@@ -33,11 +37,13 @@ export const bodySchema = z
                 z
                     .object({
                         user_scopes: z.string().optional(),
+                        authorization_params: z.record(z.string(), z.string()).optional(),
                         connection_config: z
                             .object({
                                 oauth_scopes_override: z.string().optional()
                             })
                             .passthrough()
+                            .optional()
                     })
                     .strict()
             )
@@ -73,7 +79,7 @@ export const postConnectSessions = asyncWrapper<PostConnectSessions>(async (req,
         }
 
         if (body.allowed_integrations || body.integrations_config_defaults) {
-            const integrations = await configService.listProviderConfigs(environment.id);
+            const integrations = await configService.listProviderConfigs(environment.id, trx);
 
             // Enforce that integrations exists in `allowed_integrations`
             if (body.allowed_integrations && body.allowed_integrations.length > 0) {
@@ -95,6 +101,15 @@ export const postConnectSessions = asyncWrapper<PostConnectSessions>(async (req,
             }
         }
 
+        const logCtx = await logContextGetter.create(
+            {
+                operation: { type: 'auth', action: 'create_connection' },
+                meta: { connectSession: endUserToMeta(endUserRes.value) },
+                expiresAt: defaultOperationExpiration.auth()
+            },
+            { account, environment }
+        );
+
         // create connect session
         const createConnectSession = await connectSessionService.createConnectSession(trx, {
             endUserId: endUserRes.value.id,
@@ -105,10 +120,11 @@ export const postConnectSessions = asyncWrapper<PostConnectSessions>(async (req,
                 ? Object.fromEntries(
                       Object.entries(body.integrations_config_defaults).map(([key, value]) => [
                           key,
-                          { user_scopes: value.user_scopes, connectionConfig: value.connection_config }
+                          { user_scopes: value.user_scopes, authorization_params: value.authorization_params, connectionConfig: value.connection_config }
                       ])
                   )
-                : null
+                : null,
+            operationId: logCtx.id
         });
         if (createConnectSession.isErr()) {
             return { status: 500, response: { error: { code: 'server_error', message: 'Failed to create connect session' } } };

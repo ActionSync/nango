@@ -3,11 +3,9 @@ import path from 'path';
 import fs from 'fs';
 import { dirname } from '../utils/utils.js';
 import { getPublicConfig } from './sync/config/config.service.js';
-import type { StandardNangoConfig } from '../models/NangoConfig.js';
-import type { SyncType } from '../index.js';
 import { errorManager } from '../index.js';
 import { stringifyError } from '@nangohq/utils';
-import type { FlowsYaml, ScriptTypeLiteral } from '@nangohq/types';
+import type { FlowsYaml, ScriptTypeLiteral, StandardNangoConfig } from '@nangohq/types';
 import { NangoYamlParserV2 } from '@nangohq/nango-yaml';
 
 class FlowService {
@@ -79,9 +77,9 @@ class FlowService {
                         is_public: true,
                         pre_built: true,
                         endpoints: item.endpoint ? [item.endpoint] : [],
-                        input: item.input ? (parsed.models.get(item.input) as any) : undefined,
+                        input: item.input ? parsed.models.get(item.input) : undefined,
                         enabled: false,
-                        models: item.usedModels.map((name) => parsed.models.get(name)!) as any,
+                        models: item.usedModels.map((name) => parsed.models.get(name)!),
                         last_deployed: null,
                         webhookSubscriptions: [],
                         json_schema: null,
@@ -95,17 +93,17 @@ class FlowService {
                         description: item.description,
                         track_deletes: item.track_deletes,
                         auto_start: item.auto_start,
-                        sync_type: item.sync_type as SyncType,
+                        sync_type: item.sync_type,
                         attributes: {},
                         scopes: item.scopes,
                         version: item.version || null,
                         is_public: true,
                         pre_built: true,
                         endpoints: item.endpoints,
-                        input: item.input ? (parsed.models.get(item.input) as any) : undefined,
+                        input: item.input ? parsed.models.get(item.input) : undefined,
                         runs: item.runs,
                         enabled: false,
-                        models: item.usedModels.map((name) => parsed.models.get(name)!) as any,
+                        models: item.usedModels.map((name) => parsed.models.get(name)!),
                         last_deployed: null,
                         webhookSubscriptions: [],
                         json_schema: null,

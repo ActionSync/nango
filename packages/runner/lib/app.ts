@@ -1,7 +1,7 @@
 import './tracer.js';
 import { server } from './server.js';
 import { stringifyError } from '@nangohq/utils';
-import { logger } from './utils.js';
+import { logger } from './logger.js';
 import { monitorProviders } from '@nangohq/shared';
 import { register } from './register.js';
 import { envs } from './env.js';
@@ -40,9 +40,8 @@ try {
     });
 
     process.on('unhandledRejection', (reason) => {
-        logger.error(`${id} Received unhandledRejection...`, reason);
-        process.exitCode = 1;
-        close();
+        logger.error(`${id} Received uncaughtException...`, reason);
+        // not closing on purpose
     });
 
     process.on('uncaughtException', (e) => {

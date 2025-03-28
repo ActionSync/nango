@@ -1,7 +1,7 @@
 import type { NextFunction } from 'express';
 import { z } from 'zod';
 import { asyncWrapper } from '../../utils/asyncWrapper.js';
-import { zodErrorToHTTP, stringifyError } from '@nangohq/utils';
+import { zodErrorToHTTP, stringifyError, metrics } from '@nangohq/utils';
 import {
     analytics,
     configService,
@@ -16,7 +16,7 @@ import {
 } from '@nangohq/shared';
 import type { PostPublicBillAuthorization } from '@nangohq/types';
 import type { LogContext } from '@nangohq/logs';
-import { defaultOperationExpiration, logContextGetter } from '@nangohq/logs';
+import { defaultOperationExpiration, endUserToMeta, logContextGetter } from '@nangohq/logs';
 import { hmacCheck } from '../../utils/hmac.js';
 import { connectionCreated as connectionCreatedHook, connectionCreationFailed as connectionCreationFailedHook } from '../../hooks/hooks.js';
 import { connectionCredential, connectionIdSchema, providerConfigKeySchema } from '../../helpers/validation.js';
@@ -71,7 +71,7 @@ export const postPublicBillAuthorization = asyncWrapper<PostPublicBillAuthorizat
         return;
     }
 
-    const { account, environment } = res.locals;
+    const { account, environment, connectSession } = res.locals;
     const { username: userName, password: password, organization_id: organizationId, dev_key: devkey }: PostPublicBillAuthorization['Body'] = val.data;
     const queryString: PostPublicBillAuthorization['Querystring'] = queryStringVal.data;
     const { providerConfigKey }: PostPublicBillAuthorization['Params'] = paramsVal.data;
@@ -88,14 +88,17 @@ export const postPublicBillAuthorization = asyncWrapper<PostPublicBillAuthorizat
     let logCtx: LogContext | undefined;
 
     try {
-        logCtx = await logContextGetter.create(
-            {
-                operation: { type: 'auth', action: 'create_connection' },
-                meta: { authType: 'bill' },
-                expiresAt: defaultOperationExpiration.auth()
-            },
-            { account, environment }
-        );
+        logCtx =
+            isConnectSession && connectSession.operationId
+                ? await logContextGetter.get({ id: connectSession.operationId, accountId: account.id })
+                : await logContextGetter.create(
+                      {
+                          operation: { type: 'auth', action: 'create_connection' },
+                          meta: { authType: 'bill', connectSession: endUserToMeta(res.locals.endUser) },
+                          expiresAt: defaultOperationExpiration.auth()
+                      },
+                      { account, environment }
+                  );
         void analytics.track(AnalyticsTypes.PRE_BILL_AUTH, account.id);
 
         if (!isConnectSession) {
@@ -107,7 +110,7 @@ export const postPublicBillAuthorization = asyncWrapper<PostPublicBillAuthorizat
 
         const config = await configService.getProviderConfig(providerConfigKey, environment.id);
         if (!config) {
-            await logCtx.error('Unknown provider config');
+            void logCtx.error('Unknown provider config');
             await logCtx.failed();
             res.status(404).send({ error: { code: 'unknown_provider_config' } });
             return;
@@ -115,14 +118,14 @@ export const postPublicBillAuthorization = asyncWrapper<PostPublicBillAuthorizat
 
         const provider = getProvider(config.provider);
         if (!provider) {
-            await logCtx.error('Unknown provider');
+            void logCtx.error('Unknown provider');
             await logCtx.failed();
             res.status(404).send({ error: { code: 'unknown_provider_template' } });
             return;
         }
 
         if (provider.auth_mode !== 'BILL') {
-            await logCtx.error('Provider does not support BILL auth', { provider: config.provider });
+            void logCtx.error('Provider does not support BILL auth', { provider: config.provider });
             await logCtx.failed();
             res.status(400).send({ error: { code: 'invalid_auth_mode' } });
             return;
@@ -133,10 +136,10 @@ export const postPublicBillAuthorization = asyncWrapper<PostPublicBillAuthorizat
         }
 
         // Reconnect mechanism
-        if (isConnectSession && res.locals.connectSession.connectionId) {
-            const connection = await connectionService.getConnectionById(res.locals.connectSession.connectionId);
+        if (isConnectSession && connectSession.connectionId) {
+            const connection = await connectionService.getConnectionById(connectSession.connectionId);
             if (!connection) {
-                await logCtx.error('Invalid connection');
+                void logCtx.error('Invalid connection');
                 await logCtx.failed();
                 res.status(400).send({ error: { code: 'invalid_connection' } });
                 return;
@@ -149,7 +152,7 @@ export const postPublicBillAuthorization = asyncWrapper<PostPublicBillAuthorizat
         const { success, error, response: credentials } = await connectionService.getBillCredentials(provider, userName, password, organizationId, devkey);
 
         if (!success || !credentials) {
-            await logCtx.error('Error during Bill credentials creation', { error, provider: config.provider });
+            void logCtx.error('Error during Bill credentials creation', { error, provider: config.provider });
             await logCtx.failed();
 
             errorManager.errRes(res, 'bill_error');
@@ -169,18 +172,17 @@ export const postPublicBillAuthorization = asyncWrapper<PostPublicBillAuthorizat
         });
         if (!updatedConnection) {
             res.status(500).send({ error: { code: 'server_error', message: 'failed to create connection' } });
-            await logCtx.error('Failed to create connection');
+            void logCtx.error('Failed to create connection');
             await logCtx.failed();
             return;
         }
 
         if (isConnectSession) {
-            const session = res.locals.connectSession;
-            await linkConnection(db.knex, { endUserId: session.endUserId, connection: updatedConnection.connection });
+            await linkConnection(db.knex, { endUserId: connectSession.endUserId, connection: updatedConnection.connection });
         }
 
-        await logCtx.enrichOperation({ connectionId: updatedConnection.connection.id!, connectionName: updatedConnection.connection.connection_id });
-        await logCtx.info('Bill connection creation was successful');
+        await logCtx.enrichOperation({ connectionId: updatedConnection.connection.id, connectionName: updatedConnection.connection.connection_id });
+        void logCtx.info('Bill connection creation was successful');
         await logCtx.success();
 
         void connectionCreatedHook(
@@ -192,11 +194,12 @@ export const postPublicBillAuthorization = asyncWrapper<PostPublicBillAuthorizat
                 operation: updatedConnection.operation,
                 endUser: isConnectSession ? res.locals['endUser'] : undefined
             },
-            config.provider,
-            logContextGetter,
-            undefined,
-            logCtx
+            account,
+            config,
+            logContextGetter
         );
+
+        metrics.increment(metrics.Types.AUTH_SUCCESS, 1, { auth_mode: provider.auth_mode });
 
         res.status(200).send({ providerConfigKey, connectionId });
     } catch (err) {
@@ -214,11 +217,10 @@ export const postPublicBillAuthorization = asyncWrapper<PostPublicBillAuthorizat
                 },
                 operation: 'unknown'
             },
-            'unknown',
-            logCtx
+            account
         );
         if (logCtx) {
-            await logCtx.error('Error during Bill credentials creation', { error: err });
+            void logCtx.error('Error during Bill credentials creation', { error: err });
             await logCtx.failed();
         }
 
@@ -228,6 +230,8 @@ export const postPublicBillAuthorization = asyncWrapper<PostPublicBillAuthorizat
             environmentId: environment.id,
             metadata: { providerConfigKey, connectionId }
         });
+
+        metrics.increment(metrics.Types.AUTH_FAILURE, 1, { auth_mode: 'BILL' });
 
         next(err);
     }

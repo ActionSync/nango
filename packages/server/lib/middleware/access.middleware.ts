@@ -1,15 +1,20 @@
-import type { Request, Response, NextFunction } from 'express';
-import type { Result } from '@nangohq/utils';
-import { isCloud, isBasicAuthEnabled, getLogger, metrics, stringifyError, Err, Ok, stringTimingSafeEqual } from '@nangohq/utils';
-import { LogActionEnum, ErrorSourceEnum, environmentService, errorManager, userService } from '@nangohq/shared';
-import db from '@nangohq/database';
-import * as connectSessionService from '../services/connectSession.service.js';
-import { NANGO_ADMIN_UUID } from '../controllers/account.controller.js';
+import path from 'node:path';
+
 import tracer from 'dd-trace';
+
+import db from '@nangohq/database';
+import { ErrorSourceEnum, LogActionEnum, environmentService, errorManager, userService } from '@nangohq/shared';
+import { Err, Ok, getLogger, isBasicAuthEnabled, isCloud, metrics, stringTimingSafeEqual, stringifyError, tagTraceUser } from '@nangohq/utils';
+
+import { NANGO_ADMIN_UUID } from '../controllers/account.controller.js';
+import { envs } from '../env.js';
+import { connectSessionTokenPrefix, connectSessionTokenSchema } from '../helpers/validation.js';
+import * as connectSessionService from '../services/connectSession.service.js';
+
 import type { RequestLocals } from '../utils/express.js';
 import type { ConnectSession, DBEnvironment, DBTeam, EndUser } from '@nangohq/types';
-import { connectSessionTokenSchema, connectSessionTokenPrefix } from '../helpers/validation.js';
-import { envs } from '../env.js';
+import type { Result } from '@nangohq/utils';
+import type { NextFunction, Request, Response } from 'express';
 
 const logger = getLogger('AccessMiddleware');
 
@@ -63,14 +68,14 @@ export class AccessMiddleware {
             res.locals['authType'] = 'secretKey';
             res.locals['account'] = result.value.account;
             res.locals['environment'] = result.value.environment;
-            tracer.setUser({ id: String(result.value.account.id), environmentId: String(result.value.environment.id) });
+            tagTraceUser(result.value);
             next();
         } catch (err) {
             logger.error(`failed_get_env_by_secret_key ${stringifyError(err)}`);
             span.setTag('error', err);
             return errorManager.errRes(res, 'malformed_auth_header');
         } finally {
-            metrics.duration(metrics.Types.AUTH_GET_ENV_BY_SECRET_KEY, Date.now() - start);
+            metrics.duration(metrics.Types.AUTH_GET_ENV_BY_SECRET_KEY, Date.now() - start, { accountId: res.locals['account']?.id || 'unknown' });
             span.finish();
         }
     }
@@ -229,11 +234,48 @@ export class AccessMiddleware {
             res.locals['environment'] = result.value.environment;
             res.locals['connectSession'] = result.value.connectSession;
             res.locals['endUser'] = result.value.endUser;
-            tracer.setUser({
-                id: String(result.value.account.id),
-                environmentId: String(result.value.environment.id),
-                connectSessionId: String(result.value.connectSession.id)
-            });
+            tagTraceUser(result.value);
+            next();
+        } catch (err) {
+            logger.error(`failed_get_env_by_connect_session ${stringifyError(err)}`);
+            span.setTag('error', err);
+            return errorManager.errRes(res, 'unknown_account');
+        } finally {
+            metrics.duration(metrics.Types.AUTH_GET_ENV_BY_CONNECT_SESSION, Date.now() - start);
+            span.finish();
+        }
+    }
+
+    /**
+     * This is the same as connectSessionAuth expect we check the body
+     * Only used for /connect/telemetry because we use sendBeacon that does not accept headers
+     */
+    async connectSessionAuthBody(req: Request, res: Response<any, RequestLocals>, next: NextFunction) {
+        const active = tracer.scope().active();
+        const span = tracer.startSpan('connectSessionAuth', {
+            childOf: active!
+        });
+
+        const start = Date.now();
+        try {
+            const token = req.is('application/json') && req.body && req.body['token'];
+            if (!token) {
+                errorManager.errRes(res, 'missing_auth_header');
+                return;
+            }
+
+            const result = await this.validateConnectSessionToken(token);
+            if (result.isErr()) {
+                errorManager.errRes(res, result.error.message);
+                return;
+            }
+
+            res.locals['authType'] = 'connectSession';
+            res.locals['account'] = result.value.account;
+            res.locals['environment'] = result.value.environment;
+            res.locals['connectSession'] = result.value.connectSession;
+            res.locals['endUser'] = result.value.endUser;
+            tagTraceUser(result.value);
             next();
         } catch (err) {
             logger.error(`failed_get_env_by_connect_session ${stringifyError(err)}`);
@@ -285,21 +327,15 @@ export class AccessMiddleware {
                 res.locals['authType'] = 'secretKey';
                 res.locals['account'] = secretKeyResult.value.account;
                 res.locals['environment'] = secretKeyResult.value.environment;
-                tracer.setUser({
-                    id: String(secretKeyResult.value.account.id),
-                    environmentId: String(secretKeyResult.value.environment.id)
-                });
+
+                tagTraceUser(secretKeyResult.value);
             } else {
                 res.locals['authType'] = 'connectSession';
                 res.locals['account'] = connectSessionResult.value.account;
                 res.locals['environment'] = connectSessionResult.value.environment;
                 res.locals['connectSession'] = connectSessionResult.value.connectSession;
                 res.locals['endUser'] = connectSessionResult.value.endUser;
-                tracer.setUser({
-                    id: String(connectSessionResult.value.account.id),
-                    environmentId: String(connectSessionResult.value.environment.id),
-                    connectSessionId: String(connectSessionResult.value.connectSession.id)
-                });
+                tagTraceUser(connectSessionResult.value);
             }
             next();
         } catch (err) {
@@ -332,11 +368,7 @@ export class AccessMiddleware {
                 res.locals['environment'] = connectSessionResult.value.environment;
                 res.locals['connectSession'] = connectSessionResult.value.connectSession;
                 res.locals['endUser'] = connectSessionResult.value.endUser;
-                tracer.setUser({
-                    id: String(connectSessionResult.value.account.id),
-                    environmentId: String(connectSessionResult.value.environment.id),
-                    connectSessionId: String(connectSessionResult.value.connectSession.id)
-                });
+                tagTraceUser(connectSessionResult.value);
             } else {
                 const publicKey = req.query['public_key'] as string;
 
@@ -356,7 +388,7 @@ export class AccessMiddleware {
                 res.locals['authType'] = 'publicKey';
                 res.locals['account'] = result.value.account;
                 res.locals['environment'] = result.value.environment;
-                tracer.setUser({ id: String(result.value.account.id), environmentId: String(result.value.environment.id) });
+                tagTraceUser(result.value);
             }
             next();
         } catch (err) {
@@ -429,7 +461,8 @@ async function fillLocalsFromSession(req: Request, res: Response<any, RequestLoc
 
         res.locals['user'] = user;
 
-        if (ignoreEnvPaths.includes(req.route.path)) {
+        const fullPath = path.join(req.baseUrl, req.route.path);
+        if (ignoreEnvPaths.includes(fullPath)) {
             next();
             return;
         }
@@ -448,6 +481,7 @@ async function fillLocalsFromSession(req: Request, res: Response<any, RequestLoc
 
         res.locals['account'] = result.account;
         res.locals['environment'] = result.environment;
+        tagTraceUser(result);
         next();
     } catch (err) {
         errorManager.report(err);

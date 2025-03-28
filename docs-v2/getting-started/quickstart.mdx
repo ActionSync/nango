@@ -13,7 +13,7 @@ Build your first integration with Nango using the following guides:
         Let users authorize an API directly from your app.
     </Card>
     <Card title="Guide 2: Sync data from an API" icon="rotate" href="/guides/syncs/use-a-sync">
-        Continutously sync data from an API to your app.
+        Continuously sync data from an API to your app.
     </Card>
     <Card title="Guide 3: Write data back to an API" icon="pen" href="/guides/actions/use-an-action">
         Write data back from you app to an API. 
@@ -25,7 +25,7 @@ Build your first integration with Nango using the following guides:
 
 # Sample app
 
-Alernatively, the sample app is a practical demonstration of integrating Nango in your codebase. It contains:
+Alternatively, the sample app is a practical demonstration of integrating Nango in your codebase. It contains:
 - **A frontend**: lets users connect an integration using the Nango frontend SDK.
 - **A backend**: listens to Nango webhooks and consumes the Nango API to read & write data.
 
@@ -56,6 +56,7 @@ The sample app uses Slack as an example integration and is showcased in this [de
     - Go to [Slack Dev Center](https://api.slack.com/apps) and create a Slack OAuth app with **Bot Token Scopes**:
       - `users:read`
       - `chat:write`
+    - Add `https://api.nango.dev/oauth/callback` as a **redirect URL** in your Slack OAuth app.
     - Go back to Nango. In the "Authorization" tab, add credentials in the Slack integration in the `Authorization` tab. In the "Endpoints" tab, activate endpoint `GET /users` and `POST /send-message`.
   </Step>
   <Step title="Prepare your env">

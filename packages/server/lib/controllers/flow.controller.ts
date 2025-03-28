@@ -58,7 +58,12 @@ class FlowController {
                 return;
             }
 
-            await syncManager.triggerIfConnectionsExist(preBuiltResponse.result, environment.id, logContextGetter, orchestrator);
+            await syncManager.triggerIfConnectionsExist({
+                flows: preBuiltResponse.result,
+                environmentId: environment.id,
+                logContextGetter,
+                orchestrator
+            });
 
             res.sendStatus(200);
         } catch (err) {
@@ -101,18 +106,6 @@ class FlowController {
                 await remoteFileService.zipAndSendFiles(res, name, accountId, environmentId, nango_config_id, file_location, providerConfigKey, flowType);
                 return;
             }
-        } catch (err) {
-            next(err);
-        }
-    }
-
-    public async getFlowConfig(_: Request, res: Response<any, Required<RequestLocals>>, next: NextFunction) {
-        try {
-            const environmentId = res.locals['environment'].id;
-
-            const nangoConfigs = await getSyncConfigsAsStandardConfig(environmentId);
-
-            res.send(nangoConfigs);
         } catch (err) {
             next(err);
         }

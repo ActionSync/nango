@@ -1,4 +1,4 @@
-import { IconEdit, IconServer, IconTrash } from '@tabler/icons-react';
+import { IconEdit, IconExternalLink, IconPackageExport, IconTrash } from '@tabler/icons-react';
 import { useStore } from '../../../store';
 import { apiPatchEnvironment, useEnvironment } from '../../../hooks/useEnvironment';
 import { Input } from '../../../components/ui/input/Input';
@@ -8,6 +8,7 @@ import { useToast } from '../../../hooks/useToast';
 import { Button } from '../../../components/ui/button/Button';
 import SecretInput from '../../../components/ui/input/SecretInput';
 import { EditableInput } from './EditableInput';
+import { Link } from 'react-router-dom';
 
 export const ExportSettings: React.FC = () => {
     const env = useStore((state) => state.env);
@@ -100,16 +101,16 @@ export const ExportSettings: React.FC = () => {
 
     return (
         <div className="text-grayscale-100 flex flex-col gap-10">
-            <div className="flex gap-2 items-center rounded-md bg-grayscale-900 px-8 h-10">
+            <Link className="flex gap-2 items-center rounded-md bg-grayscale-900 px-8 h-10" to="#export" id="export">
                 <div>
-                    <IconServer stroke={1} size={18} />
+                    <IconPackageExport stroke={1} size={18} />
                 </div>
                 <h3 className="uppercase text-sm">Export Settings</h3>
-            </div>
+            </Link>
             <div className="px-8 flex flex-col gap-4 w-3/5">
-                <fieldset className="flex flex-col">
-                    <label className="font-semibold">OpenTelemetry</label>
-                </fieldset>
+                <Link to="https://docs.nango.dev/guides/logs/opentelemetry-exporter" className="flex gap-2 items-center" target="_blank">
+                    <label className="font-semibold">OpenTelemetry</label> <IconExternalLink stroke={1} size={18} />
+                </Link>
 
                 <EditableInput
                     name="otlp_endpoint"
@@ -124,19 +125,19 @@ export const ExportSettings: React.FC = () => {
                     <label htmlFor="otlp_headers" className="text-s">
                         Headers
                     </label>
-                    <div className="flex flex-col gap-2">
+                    <div className="flex flex-col gap-2.5">
                         {headers.map((header, i) => {
                             const errorName = errors.find((err) => err.index === i && err.key === 'name');
                             const errorValue = errors.find((err) => err.index === i && err.key === 'value');
                             return (
                                 <div key={i} className="flex flex-col gap-0.5">
-                                    <div className="flex gap-2">
+                                    <div className="flex gap-4">
                                         <Input
                                             value={header.name}
                                             onChange={(e) => onUpdate('name', e.target.value, i)}
                                             inputSize={'lg'}
                                             variant={'black'}
-                                            className={cn('w-[225px]', errorName && 'border-alert-400')}
+                                            className={cn('w-[200px]', errorName && 'border-alert-400')}
                                             placeholder="MY_HEADER"
                                             disabled={!editHeaders || loading}
                                         />
@@ -145,19 +146,19 @@ export const ExportSettings: React.FC = () => {
                                             onChange={(e) => onUpdate('value', e.target.value, i)}
                                             inputSize={'lg'}
                                             variant={'black'}
-                                            className={cn('w-[225px] grow', errorValue && 'border-alert-400')}
+                                            className={cn('w-[200px] grow', errorValue && 'border-alert-400')}
                                             placeholder="value"
                                             disabled={!editHeaders || loading}
                                         />
                                         {editHeaders && (
-                                            <Button variant={'icon'} size="lg" onClick={() => !loading && onRemove(i)}>
+                                            <Button variant={'danger'} size="lg" onClick={() => !loading && onRemove(i)}>
                                                 <IconTrash stroke={1} />
                                             </Button>
                                         )}
                                     </div>
 
                                     {(errorName || errorValue) && (
-                                        <div className="flex gap-2 ">
+                                        <div className="flex gap-2">
                                             <div className="w-[225px]">{errorName && <div className="text-alert-400 text-s">{errorName.error}</div>}</div>
                                             <div className="w-[225px]">{errorValue && <div className="text-alert-400 text-s">{errorValue.error}</div>}</div>
                                         </div>
@@ -166,18 +167,18 @@ export const ExportSettings: React.FC = () => {
                             );
                         })}
                     </div>
-                    <div className="flex justify-end gap-2 mt-1">
+                    <div className="flex justify-end gap-3 mt-1.5">
                         {!editHeaders && (
-                            <Button variant={'secondary'} onClick={() => onEnabledEdit()} size={'sm'}>
+                            <Button variant={'secondary'} onClick={() => onEnabledEdit()}>
                                 <IconEdit stroke={1} size={18} /> Edit
                             </Button>
                         )}
                         {editHeaders && (
                             <>
-                                <Button variant={'tertiary'} onClick={onCancelHeaders} size={'sm'}>
-                                    cancel
+                                <Button variant={'tertiary'} onClick={onCancelHeaders}>
+                                    Cancel
                                 </Button>
-                                <Button variant={'primary'} onClick={onSaveHeaders} isLoading={loading} size={'sm'}>
+                                <Button variant={'primary'} onClick={onSaveHeaders} isLoading={loading}>
                                     Save
                                 </Button>
                             </>

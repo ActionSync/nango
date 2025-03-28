@@ -1,7 +1,9 @@
 import type { ApiError, Endpoint, CursorOffset, GetCursorSuccess } from '@nangohq/types';
+import { validateRequest } from '@nangohq/utils';
 import type { EndpointRequest, EndpointResponse, RouteHandler, Route } from '@nangohq/utils';
 import { records } from '@nangohq/records';
-import { validateCursor } from './validate.js';
+import { getCursorRequestParser } from './validate.js';
+import type { AuthLocals } from '../../../../../middleware/auth.middleware.js';
 
 type GetCursor = Endpoint<{
     Method: typeof method;
@@ -21,9 +23,9 @@ type GetCursor = Endpoint<{
 export const path = '/environment/:environmentId/connection/:nangoConnectionId/cursor';
 const method = 'GET';
 
-const validate = validateCursor<GetCursor>();
+const validate = validateRequest<GetCursor>(getCursorRequestParser);
 
-const handler = async (req: EndpointRequest<GetCursor>, res: EndpointResponse<GetCursor>) => {
+const handler = async (req: EndpointRequest<GetCursor>, res: EndpointResponse<GetCursor, AuthLocals>) => {
     const {
         params: { nangoConnectionId },
         query: { model, offset }
@@ -43,7 +45,7 @@ const handler = async (req: EndpointRequest<GetCursor>, res: EndpointResponse<Ge
 
 export const route: Route<GetCursor> = { path, method };
 
-export const routeHandler: RouteHandler<GetCursor> = {
+export const routeHandler: RouteHandler<GetCursor, AuthLocals> = {
     method,
     path,
     validate,

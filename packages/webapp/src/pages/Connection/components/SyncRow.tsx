@@ -3,7 +3,15 @@ import * as Table from '../../../components/ui/Table';
 import { Tag } from '../../../components/ui/label/Tag';
 import { Link } from 'react-router-dom';
 import { EllipsisHorizontalIcon, QueueListIcon } from '@heroicons/react/24/outline';
-import { formatFrequency, getRunTime, parseLatestSyncResult, formatDateToUSFormat, interpretNextRun, formatQuantity } from '../../../utils/utils';
+import {
+    formatFrequency,
+    getRunTime,
+    parseLatestSyncResult,
+    formatDateToUSFormat,
+    interpretNextRun,
+    formatQuantity,
+    truncateMiddle
+} from '../../../utils/utils';
 import { getLogsUrl } from '../../../utils/logs';
 import { UserFacingSyncCommand } from '../../../types';
 import type { RunSyncCommand, SyncResponse } from '../../../types';
@@ -21,7 +29,12 @@ import { Select, SelectItem, SelectContent, SelectTrigger, SelectValue } from '.
 import { Checkbox } from '../../../components/ui/Checkbox';
 import { apiRunSyncCommand } from '../../../hooks/useSyncs';
 
-export const SyncRow: React.FC<{ sync: SyncResponse; connection: ApiConnectionFull; provider: string | null }> = ({ sync, connection, provider }) => {
+export const SyncRow: React.FC<{ sync: SyncResponse; connection: ApiConnectionFull; provider: string | null; showSyncVariant: boolean }> = ({
+    sync,
+    connection,
+    provider,
+    showSyncVariant
+}) => {
     const { toast } = useToast();
 
     const env = useStore((state) => state.env);
@@ -30,7 +43,7 @@ export const SyncRow: React.FC<{ sync: SyncResponse; connection: ApiConnectionFu
 
     const [showPauseStartLoader, setShowPauseStartLoader] = useState(false);
     const [showInterruptLoader, setShowInterruptLoader] = useState(false);
-    const [triggerMode, setTriggerMode] = useState<'incremental' | 'full'>(sync.sync_type?.toLocaleLowerCase() === 'full' ? 'full' : 'incremental');
+    const [triggerMode, setTriggerMode] = useState<'incremental' | 'full'>(sync.sync_type === 'full' ? 'full' : 'incremental');
     const [deleteRecords, setDeleteRecords] = useState(false);
     const [modalSpinner, setModalShowSpinner] = useState(false);
     const [openConfirm, setOpenConfirm] = useState(false);
@@ -114,7 +127,18 @@ export const SyncRow: React.FC<{ sync: SyncResponse; connection: ApiConnectionFu
     return (
         <Table.Row className="text-white">
             <Table.Cell bordered>
-                <div className="w-36 max-w-3xl truncate">{sync.name}</div>
+                <div className="w-36 max-w-3xl truncate">
+                    <div className="flex gap-2">
+                        {sync.name}
+                        {showSyncVariant && (
+                            <SimpleTooltip tooltipContent={sync.variant}>
+                                <Tag variant="gray1" textCase="normal" size="sm">
+                                    {truncateMiddle(sync.variant)}
+                                </Tag>
+                            </SimpleTooltip>
+                        )}
+                    </div>
+                </div>
             </Table.Cell>
             <Table.Cell bordered>
                 <div className="w-36 max-w-3xl truncate">{Array.isArray(sync.models) ? sync.models.join(', ') : sync.models}</div>
@@ -165,7 +189,7 @@ export const SyncRow: React.FC<{ sync: SyncResponse; connection: ApiConnectionFu
             <Table.Cell bordered>
                 <Popover>
                     <PopoverTrigger asChild>
-                        <Button variant="zombie">
+                        <Button variant="icon" size="xs">
                             <EllipsisHorizontalIcon className="flex h-5 w-5 cursor-pointer" />
                         </Button>
                     </PopoverTrigger>

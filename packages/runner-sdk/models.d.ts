@@ -1,6 +1,7 @@
 import type { Nango } from '@nangohq/node';
 import type { AxiosInstance, AxiosInterceptorManager, AxiosRequestConfig, AxiosResponse, AxiosError } from 'axios';
-import type { ApiEndUser, DBSyncConfig, DBTeam, GetPublicIntegration, RunnerFlags } from '@nangohq/types';
+import type { ApiEndUser, DBSyncConfig, DBTeam, GetPublicIntegration, HTTP_METHOD, RunnerFlags } from '@nangohq/types';
+import type { ZodSchema, SafeParseSuccess } from 'zod';
 
 export declare const oldLevelToNewLevel: {
     readonly debug: 'debug';
@@ -48,7 +49,7 @@ export interface ProxyConfiguration {
     baseUrlOverride?: string;
     paginate?: Partial<CursorPagination> | Partial<LinkPagination> | Partial<OffsetPagination>;
     retryHeader?: RetryHeaderConfig;
-    responseType?: 'arraybuffer' | 'blob' | 'document' | 'json' | 'text' | 'stream';
+    responseType?: 'arraybuffer' | 'blob' | 'document' | 'json' | 'text' | 'stream' | undefined;
     retryOn?: number[] | null;
 }
 export interface AuthModes {
@@ -138,7 +139,7 @@ interface JwtCredentials {
     type: AuthModes['Jwt'];
     privateKeyId?: string;
     issuerId?: string;
-    privateKey:{
+    privateKey: {
         id: string;
         secret: string;
     } | string;
@@ -201,18 +202,6 @@ export declare class ActionError<T = Record<string, unknown>> extends Error {
     payload?: Record<string, unknown>;
     constructor(payload?: T);
 }
-interface RunArgs {
-    sync: string;
-    connectionId: string;
-    lastSyncDate?: string;
-    useServerLastSyncDate?: boolean;
-    input?: object;
-    metadata?: Metadata;
-    autoConfirm: boolean;
-    debug: boolean;
-    optionalEnvironment?: string;
-    optionalProviderConfigKey?: string;
-}
 export interface NangoProps {
     scriptType: 'sync' | 'action' | 'webhook' | 'on-event';
     host?: string;
@@ -232,15 +221,15 @@ export interface NangoProps {
     track_deletes?: boolean;
     attributes?: object | undefined;
     logMessages?:
-        | {
-              counts: {
-                  updated: number;
-                  added: number;
-                  deleted: number;
-              };
-              messages: unknown[];
-          }
-        | undefined;
+    | {
+        counts: {
+            updated: number;
+            added: number;
+            deleted: number;
+        };
+        messages: unknown[];
+    }
+    | undefined;
     rawSaveOutput?: Map<string, unknown[]> | undefined;
     rawDeleteOutput?: Map<string, unknown[]> | undefined;
     stubbedMetadata?: Metadata | undefined;
@@ -335,12 +324,12 @@ export declare class NangoAction {
         message: any,
         options?:
             | {
-                  level?: LogLevel;
-              }
+                level?: LogLevel;
+            }
             | {
-                  [key: string]: any;
-                  level?: never;
-              }
+                [key: string]: any;
+                level?: never;
+            }
     ): Promise<void>;
     log(
         message: string,
@@ -355,22 +344,30 @@ export declare class NangoAction {
     getFlowAttributes<A = object>(): A | null;
     paginate<T = any>(config: ProxyConfiguration): AsyncGenerator<T[], undefined, void>;
     triggerAction<In = unknown, Out = object>(providerConfigKey: string, connectionId: string, actionName: string, input?: In): Promise<Out>;
+    zodValidateInput<T = any, Z = any>({ zodSchema, input }: { zodSchema: ZodSchema<Z>; input: T }): Promise<SafeParseSuccess<Z>>;
     triggerSync(providerConfigKey: string, connectionId: string, syncName: string, fullResync?: boolean): Promise<void | string>;
+    startSync(providerConfigKey: string, syncs: (string | { name: string; variant: string })[], connectionId?: string): Promise<void>;
+    /**
+     * Uncontrolled fetch is a regular fetch without retry or credentials injection.
+     * Only use that method when you want to access resources that are unrelated to the current connection/provider.
+     */
+    uncontrolledFetch(options: { url: URL; method?: HTTP_METHOD; headers?: Record<string, string> | undefined; body?: string | null }): Promise<Response>;
     private sendLogToPersist;
     private logAPICall;
 }
 export declare class NangoSync extends NangoAction {
+    variant: string;
     lastSyncDate?: Date;
     track_deletes: boolean;
     logMessages?:
         | {
-              counts: {
-                  updated: number;
-                  added: number;
-                  deleted: number;
-              };
-              messages: unknown[];
-          }
+            counts: {
+                updated: number;
+                added: number;
+                deleted: number;
+            };
+            messages: unknown[];
+        }
         | undefined;
     rawSaveOutput?: Map<string, unknown[]>;
     rawDeleteOutput?: Map<string, unknown[]>;
@@ -380,12 +377,13 @@ export declare class NangoSync extends NangoAction {
     /**
      * @deprecated please use batchSave
      */
-    batchSend<T = any>(results: T[], model: string): Promise<boolean | null>;
-    batchSave<T = any>(results: T[], model: string): Promise<boolean | null>;
-    batchDelete<T = any>(results: T[], model: string): Promise<boolean | null>;
-    batchUpdate<T = any>(results: T[], model: string): Promise<boolean | null>;
+    batchSend<T extends object>(results: T[], model: string): Promise<boolean | null>;
+    batchSave<T extends object>(results: T[], model: string): Promise<boolean | null>;
+    batchDelete<T extends object>(results: T[], model: string): Promise<boolean | null>;
+    batchUpdate<T extends object>(results: T[], model: string): Promise<boolean | null>;
     getMetadata<T = Metadata>(): Promise<T>;
     setMergingStrategy(merging: { strategy: 'ignore_if_modified_after' | 'override' }, model: string): Promise<void>;
+    getRecordsByIds<K = string | number, T = any>(ids: K[], model: string): Promise<Map<K, T>>;
 }
 /**
  * @internal
@@ -394,4 +392,4 @@ export declare class NangoSync extends NangoAction {
  * It has been split from the actual code to avoid making the code too dirty and to easily enable/disable tracing if there is an issue with it
  */
 export declare function instrumentSDK(rawNango: NangoAction | NangoSync): NangoAction | NangoSync;
-export {};
+export { };

@@ -1,9 +1,10 @@
-import type { Knex } from '@nangohq/database';
 import * as keystore from '@nangohq/keystore';
-import type { ConnectSession, DBEndUser, EndUser } from '@nangohq/types';
-import { Err, Ok } from '@nangohq/utils';
-import type { Result } from '@nangohq/utils';
 import { EndUserMapper } from '@nangohq/shared';
+import { Err, Ok } from '@nangohq/utils';
+
+import type { Knex } from '@nangohq/database';
+import type { ConnectSession, ConnectSessionIntegrationConfigDefaults, DBEndUser, EndUser } from '@nangohq/types';
+import type { Result } from '@nangohq/utils';
 import type { SetOptional } from 'type-fest';
 
 const CONNECT_SESSIONS_TABLE = 'connect_sessions';
@@ -14,10 +15,11 @@ interface DBConnectSession {
     readonly account_id: number;
     readonly environment_id: number;
     readonly connection_id: number | null;
+    readonly operation_id: string | null;
     readonly created_at: Date;
     readonly updated_at: Date | null;
     readonly allowed_integrations: string[] | null;
-    readonly integrations_config_defaults: Record<string, { connectionConfig: Record<string, unknown> }> | null;
+    readonly integrations_config_defaults: Record<string, ConnectSessionIntegrationConfigDefaults> | null;
 }
 type DbInsertConnectSession = Omit<DBConnectSession, 'id' | 'created_at' | 'updated_at'>;
 
@@ -29,6 +31,7 @@ const ConnectSessionMapper = {
             account_id: session.accountId,
             environment_id: session.environmentId,
             connection_id: session.connectionId,
+            operation_id: session.operationId || null,
             created_at: session.createdAt,
             updated_at: session.updatedAt,
             allowed_integrations: session.allowedIntegrations || null,
@@ -42,6 +45,7 @@ const ConnectSessionMapper = {
             accountId: dbSession.account_id,
             environmentId: dbSession.environment_id,
             connectionId: dbSession.connection_id,
+            operationId: dbSession.operation_id || null,
             createdAt: dbSession.created_at,
             updatedAt: dbSession.updated_at,
             allowedIntegrations: dbSession.allowed_integrations || null,
@@ -74,9 +78,13 @@ export async function createConnectSession(
         environmentId,
         connectionId,
         allowedIntegrations,
-        integrationsConfigDefaults
+        integrationsConfigDefaults,
+        operationId
     }: SetOptional<
-        Pick<ConnectSession, 'endUserId' | 'allowedIntegrations' | 'connectionId' | 'integrationsConfigDefaults' | 'accountId' | 'environmentId'>,
+        Pick<
+            ConnectSession,
+            'endUserId' | 'allowedIntegrations' | 'connectionId' | 'integrationsConfigDefaults' | 'accountId' | 'environmentId' | 'operationId'
+        >,
         'connectionId'
     >
 ): Promise<Result<ConnectSession, ConnectSessionError>> {
@@ -86,7 +94,8 @@ export async function createConnectSession(
         environment_id: environmentId,
         connection_id: connectionId || null,
         allowed_integrations: allowedIntegrations,
-        integrations_config_defaults: integrationsConfigDefaults
+        integrations_config_defaults: integrationsConfigDefaults,
+        operation_id: operationId
     };
     const [session] = await db.insert<DBConnectSession>(dbSession).into(CONNECT_SESSIONS_TABLE).returning('*');
     if (!session) {
@@ -163,4 +172,16 @@ export async function deleteConnectSession(
         return Err(new ConnectSessionError({ code: 'not_found', message: `Connect session '${id}' not found`, payload: { id, accountId, environmentId } }));
     }
     return Ok(undefined);
+}
+
+export async function deleteExpiredConnectSession(db: Knex, { limit, olderThan }: { limit: number; olderThan: number }): Promise<number> {
+    const dateThreshold = new Date();
+    dateThreshold.setDate(dateThreshold.getDate() - olderThan);
+
+    return await db
+        .from<DBConnectSession>(CONNECT_SESSIONS_TABLE)
+        .whereIn('id', function (sub) {
+            sub.select('id').from<DBConnectSession>(CONNECT_SESSIONS_TABLE).where('created_at', '<=', dateThreshold.toISOString()).limit(limit);
+        })
+        .delete();
 }

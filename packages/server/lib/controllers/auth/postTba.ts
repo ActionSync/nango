@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { asyncWrapper } from '../../utils/asyncWrapper.js';
-import { stringifyError, zodErrorToHTTP } from '@nangohq/utils';
+import { metrics, stringifyError, zodErrorToHTTP } from '@nangohq/utils';
 import {
     analytics,
     configService,
@@ -13,14 +13,14 @@ import {
     LogActionEnum,
     linkConnection
 } from '@nangohq/shared';
-import type { TbaCredentials, PostPublicTbaAuthorization, MessageRowInsert } from '@nangohq/types';
+import type { TbaCredentials, PostPublicTbaAuthorization } from '@nangohq/types';
 import type { LogContext } from '@nangohq/logs';
-import { defaultOperationExpiration, flushLogsBuffer, logContextGetter } from '@nangohq/logs';
+import { defaultOperationExpiration, endUserToMeta, logContextGetter } from '@nangohq/logs';
 import { hmacCheck } from '../../utils/hmac.js';
 import {
     connectionCreated as connectionCreatedHook,
-    connectionTest as connectionTestHook,
-    connectionCreationFailed as connectionCreationFailedHook
+    connectionCreationFailed as connectionCreationFailedHook,
+    testConnectionCredentials
 } from '../../hooks/hooks.js';
 import { connectionCredential, connectionIdSchema, providerConfigKeySchema } from '../../helpers/validation.js';
 import db from '@nangohq/database';
@@ -74,7 +74,7 @@ export const postPublicTbaAuthorization = asyncWrapper<PostPublicTbaAuthorizatio
         return;
     }
 
-    const { account, environment } = res.locals;
+    const { account, environment, connectSession } = res.locals;
 
     const body: PostPublicTbaAuthorization['Body'] = val.data;
     const { token_id: tokenId, token_secret: tokenSecret, oauth_client_id_override, oauth_client_secret_override } = body;
@@ -93,14 +93,17 @@ export const postPublicTbaAuthorization = asyncWrapper<PostPublicTbaAuthorizatio
     let logCtx: LogContext | undefined;
 
     try {
-        logCtx = await logContextGetter.create(
-            {
-                operation: { type: 'auth', action: 'create_connection' },
-                meta: { authType: 'tba' },
-                expiresAt: defaultOperationExpiration.auth()
-            },
-            { account, environment }
-        );
+        logCtx =
+            isConnectSession && connectSession.operationId
+                ? await logContextGetter.get({ id: connectSession.operationId, accountId: account.id })
+                : await logContextGetter.create(
+                      {
+                          operation: { type: 'auth', action: 'create_connection' },
+                          meta: { authType: 'tba', connectSession: endUserToMeta(res.locals.endUser) },
+                          expiresAt: defaultOperationExpiration.auth()
+                      },
+                      { account, environment }
+                  );
         void analytics.track(AnalyticsTypes.PRE_TBA_AUTH, account.id);
 
         if (!isConnectSession) {
@@ -112,7 +115,7 @@ export const postPublicTbaAuthorization = asyncWrapper<PostPublicTbaAuthorizatio
 
         const config = await configService.getProviderConfig(providerConfigKey, environment.id);
         if (!config) {
-            await logCtx.error('Unknown provider config');
+            void logCtx.error('Unknown provider config');
             await logCtx.failed();
             res.status(404).send({ error: { code: 'unknown_provider_config' } });
             return;
@@ -120,14 +123,14 @@ export const postPublicTbaAuthorization = asyncWrapper<PostPublicTbaAuthorizatio
 
         const provider = getProvider(config.provider);
         if (!provider) {
-            await logCtx.error('Unknown provider');
+            void logCtx.error('Unknown provider');
             await logCtx.failed();
             res.status(404).send({ error: { code: 'unknown_provider_template' } });
             return;
         }
 
         if (provider.auth_mode !== 'TBA') {
-            await logCtx.error('Provider does not support TBA auth', { provider: config.provider });
+            void logCtx.error('Provider does not support TBA auth', { provider: config.provider });
             await logCtx.failed();
 
             res.status(400).send({
@@ -142,10 +145,10 @@ export const postPublicTbaAuthorization = asyncWrapper<PostPublicTbaAuthorizatio
         }
 
         // Reconnect mechanism
-        if (isConnectSession && res.locals.connectSession.connectionId) {
-            const connection = await connectionService.getConnectionById(res.locals.connectSession.connectionId);
+        if (isConnectSession && connectSession.connectionId) {
+            const connection = await connectionService.getConnectionById(connectSession.connectionId);
             if (!connection) {
-                await logCtx.error('Invalid connection');
+                void logCtx.error('Invalid connection');
                 await logCtx.failed();
                 res.status(400).send({ error: { code: 'invalid_connection' } });
                 return;
@@ -165,7 +168,7 @@ export const postPublicTbaAuthorization = asyncWrapper<PostPublicTbaAuthorizatio
         if (oauth_client_id_override || oauth_client_secret_override) {
             const obfuscatedClientSecret = oauth_client_secret_override ? oauth_client_secret_override.slice(0, 4) + '***' : '';
 
-            await logCtx.info('Credentials override', {
+            void logCtx.info('Credentials override', {
                 oauth_client_id: oauth_client_id_override || '',
                 oauth_client_secret: obfuscatedClientSecret
             });
@@ -179,12 +182,9 @@ export const postPublicTbaAuthorization = asyncWrapper<PostPublicTbaAuthorizatio
             }
         }
 
-        const connectionResponse = await connectionTestHook({ config, connectionConfig, connectionId, credentials: tbaCredentials, provider });
+        const connectionResponse = await testConnectionCredentials({ config, connectionConfig, connectionId, credentials: tbaCredentials, provider, logCtx });
         if (connectionResponse.isErr()) {
-            if ('logs' in connectionResponse.error.payload) {
-                await flushLogsBuffer(connectionResponse.error.payload['logs'] as MessageRowInsert[], logCtx);
-            }
-            await logCtx.error('Provided credentials are invalid', { provider: config.provider });
+            void logCtx.error('Provided credentials are invalid');
             await logCtx.failed();
 
             res.send({
@@ -193,8 +193,6 @@ export const postPublicTbaAuthorization = asyncWrapper<PostPublicTbaAuthorizatio
 
             return;
         }
-
-        await flushLogsBuffer(connectionResponse.value.logs, logCtx);
 
         const [updatedConnection] = await connectionService.upsertAuthConnection({
             connectionId,
@@ -212,18 +210,17 @@ export const postPublicTbaAuthorization = asyncWrapper<PostPublicTbaAuthorizatio
         });
         if (!updatedConnection) {
             res.status(500).send({ error: { code: 'server_error', message: 'failed to create connection' } });
-            await logCtx.error('Failed to create connection');
+            void logCtx.error('Failed to create connection');
             await logCtx.failed();
             return;
         }
 
         if (isConnectSession) {
-            const session = res.locals.connectSession;
-            await linkConnection(db.knex, { endUserId: session.endUserId, connection: updatedConnection.connection });
+            await linkConnection(db.knex, { endUserId: connectSession.endUserId, connection: updatedConnection.connection });
         }
 
-        await logCtx.enrichOperation({ connectionId: updatedConnection.connection.id!, connectionName: updatedConnection.connection.connection_id });
-        await logCtx.info('Tba connection creation was successful');
+        await logCtx.enrichOperation({ connectionId: updatedConnection.connection.id, connectionName: updatedConnection.connection.connection_id });
+        void logCtx.info('Tba connection creation was successful');
         await logCtx.success();
 
         void connectionCreatedHook(
@@ -235,11 +232,12 @@ export const postPublicTbaAuthorization = asyncWrapper<PostPublicTbaAuthorizatio
                 operation: updatedConnection.operation,
                 endUser: isConnectSession ? res.locals['endUser'] : undefined
             },
-            config.provider,
-            logContextGetter,
-            undefined,
-            logCtx
+            account,
+            config,
+            logContextGetter
         );
+
+        metrics.increment(metrics.Types.AUTH_SUCCESS, 1, { auth_mode: provider.auth_mode });
 
         res.status(200).send({ providerConfigKey, connectionId });
     } catch (err) {
@@ -250,18 +248,17 @@ export const postPublicTbaAuthorization = asyncWrapper<PostPublicTbaAuthorizatio
                 connection: { connection_id: connectionId, provider_config_key: providerConfigKey },
                 environment,
                 account,
-                auth_mode: 'TABLEAU',
+                auth_mode: 'TBA',
                 error: {
                     type: 'unknown',
                     description: `Error during Unauth create: ${prettyError}`
                 },
                 operation: 'unknown'
             },
-            'unknown',
-            logCtx
+            account
         );
         if (logCtx) {
-            await logCtx.error('Error during Tableau credentials creation', { error: err });
+            void logCtx.error('Error during Tableau credentials creation', { error: err });
             await logCtx.failed();
         }
 
@@ -271,6 +268,8 @@ export const postPublicTbaAuthorization = asyncWrapper<PostPublicTbaAuthorizatio
             environmentId: environment.id,
             metadata: { providerConfigKey, connectionId }
         });
+
+        metrics.increment(metrics.Types.AUTH_FAILURE, 1, { auth_mode: 'TBA' });
 
         next(err);
     }

@@ -98,6 +98,9 @@
                     "type": "object",
                     "additionalProperties": true
                 },
+                "authorization_code_param_in_callback": {
+                    "type": "string"
+                },
                 "body_format": {
                     "type": "string"
                 },
@@ -125,6 +128,7 @@
                             "marketing",
                             "other",
                             "payment",
+                            "popular",
                             "productivity",
                             "search",
                             "social",
@@ -254,14 +258,17 @@
                         "verification": {
                             "type": "object",
                             "additionalProperties": false,
-                            "required": ["endpoint"],
+                            "required": ["endpoints"],
                             "properties": {
                                 "method": {
                                     "type": "string",
                                     "enum": ["GET", "POST"]
                                 },
-                                "endpoint": {
-                                    "type": "string"
+                                "endpoints": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
                                 },
                                 "base_url_override": {
                                     "type": "string"
@@ -333,6 +340,47 @@
                 "request_url": {
                     "type": "string"
                 },
+                "additional_steps": {
+                    "type": "array",
+                    "additionalProperties": true,
+                    "properties": {
+                        "body_format": {
+                            "type": "string",
+                            "enum": ["form"]
+                        },
+                        "token_params": {
+                            "type": "object",
+                            "properties": {
+                                "grant_type": {
+                                    "type": "string",
+                                    "enum": ["urn:salesforce:grant-type:external:cdp"]
+                                },
+                                "subject_token": {
+                                    "type": "string"
+                                },
+                                "subject_token_type": {
+                                    "type": "string",
+                                    "enum": ["urn:ietf:params:oauth:token-type:access_token"]
+                                }
+                            },
+                            "required": ["grant_type", "subject_token", "subject_token_type"]
+                        },
+                        "token_headers": {
+                            "type": "object",
+                            "properties": {
+                                "content-type": {
+                                    "type": "string",
+                                    "enum": ["application/x-www-form-urlencoded"]
+                                }
+                            },
+                            "required": ["content-type"]
+                        },
+                        "token_url": {
+                            "type": "string"
+                        }
+                    },
+                    "required": ["body_format", "token_params", "token_headers", "token_url"]
+                },
                 "scope_separator": {
                     "type": "string"
                 },
@@ -359,7 +407,12 @@
                     "properties": {
                         "grant_type": {
                             "type": "string",
-                            "enum": ["authorization_code", "client_credentials", "urn:ietf:params:oauth:grant-type:saml2-bearer"]
+                            "enum": [
+                                "authorization_code",
+                                "client_credentials",
+                                "urn:ietf:params:oauth:grant-type:saml2-bearer",
+                                "urn:ietf:params:oauth:grant-type:jwt-bearer"
+                            ]
                         },
                         "request": {
                             "anyOf": [
@@ -408,6 +461,9 @@
                     "items": {
                         "type": "string"
                     }
+                },
+                "credentials_verification_script": {
+                    "type": "string"
                 },
                 "token_url": {
                     "oneOf": [
@@ -560,6 +616,9 @@
                                 "doc_section": {
                                     "type": "string",
                                     "pattern": "^#[a-z0-9-]+$"
+                                },
+                                "optional": {
+                                    "type": "boolean"
                                 }
                             }
                         }

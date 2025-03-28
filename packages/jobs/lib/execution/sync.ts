@@ -1,46 +1,47 @@
 import tracer from 'dd-trace';
-import type { Config, Job } from '@nangohq/shared';
+
+import db from '@nangohq/database';
+import { OtlpSpan, getFormattedOperation, logContextGetter } from '@nangohq/logs';
+import { records } from '@nangohq/records';
 import {
-    environmentService,
-    externalWebhookService,
-    getApiUrl,
-    getLastSyncDate,
-    updateSyncJobStatus,
-    SyncStatus,
-    errorManager,
     ErrorSourceEnum,
     LogActionEnum,
-    telemetry,
-    LogTypes,
-    errorNotificationService,
-    SyncType,
-    updateSyncJobResult,
-    setLastSyncDate,
     NangoError,
+    SyncJobsType,
+    SyncStatus,
     configService,
     createSyncJob,
+    environmentService,
+    errorManager,
+    errorNotificationService,
+    externalWebhookService,
+    getApiUrl,
+    getEndUserByConnectionId,
+    getLastSyncDate,
     getSyncConfigRaw,
     getSyncJobByRunId,
-    getEndUserByConnectionId,
-    featureFlags
+    setLastSyncDate,
+    updateSyncJobResult,
+    updateSyncJobStatus
 } from '@nangohq/shared';
-import { Err, Ok, metrics } from '@nangohq/utils';
-import type { Result } from '@nangohq/utils';
-import type { DBEnvironment, DBSyncConfig, DBTeam, NangoConnection, NangoProps, SyncResult, SyncTypeLiteral } from '@nangohq/types';
+import { Err, Ok, metrics, tagTraceUser } from '@nangohq/utils';
 import { sendSync as sendSyncWebhook } from '@nangohq/webhooks';
+
 import { bigQueryClient, orchestratorClient, slackService } from '../clients.js';
-import { startScript } from './operations/start.js';
-import { logContextGetter } from '@nangohq/logs';
-import type { LogContext } from '@nangohq/logs';
-import { records } from '@nangohq/records';
-import type { TaskSync, TaskSyncAbort } from '@nangohq/nango-orchestrator';
-import { abortScript } from './operations/abort.js';
 import { logger } from '../logger.js';
-import db from '@nangohq/database';
+import { abortScript } from './operations/abort.js';
+import { startScript } from './operations/start.js';
 import { getRunnerFlags } from '../utils/flags.js';
+import { setTaskFailed, setTaskSuccess } from './operations/state.js';
+
+import type { LogContextOrigin } from '@nangohq/logs';
+import type { TaskSync, TaskSyncAbort } from '@nangohq/nango-orchestrator';
+import type { Config, Job } from '@nangohq/shared';
+import type { ConnectionJobs, DBEnvironment, DBSyncConfig, DBTeam, NangoProps, SyncResult, SyncTypeLiteral } from '@nangohq/types';
+import type { Result } from '@nangohq/utils';
 
 export async function startSync(task: TaskSync, startScriptFn = startScript): Promise<Result<NangoProps>> {
-    let logCtx: LogContext | undefined;
+    let logCtx: LogContextOrigin | undefined;
     let team: DBTeam | undefined;
     let environment: DBEnvironment | undefined;
     let syncJob: Job | null = null;
@@ -49,6 +50,7 @@ export async function startSync(task: TaskSync, startScriptFn = startScript): Pr
     let providerConfig: Config | null = null;
     let syncConfig: DBSyncConfig | null = null;
     let endUser: NangoProps['endUser'] | null = null;
+    const startedAt = new Date();
 
     try {
         lastSyncDate = await getLastSyncDate(task.syncId);
@@ -74,6 +76,7 @@ export async function startSync(task: TaskSync, startScriptFn = startScript): Pr
         }
         team = accountAndEnv.account;
         environment = accountAndEnv.environment;
+        tagTraceUser(accountAndEnv);
 
         const getEndUser = await getEndUserByConnectionId(db.knex, { connectionId: task.connection.id });
         if (getEndUser.isOk()) {
@@ -93,10 +96,11 @@ export async function startSync(task: TaskSync, startScriptFn = startScript): Pr
                 meta: { scriptVersion: syncConfig.version }
             }
         );
+        logCtx.attachSpan(new OtlpSpan(logCtx.operation, startedAt));
 
         syncJob = await createSyncJob({
             sync_id: task.syncId,
-            type: syncType === 'full' ? SyncType.FULL : SyncType.INCREMENTAL,
+            type: syncType === 'full' ? SyncJobsType.FULL : SyncJobsType.INCREMENTAL,
             status: SyncStatus.RUNNING,
             job_id: task.name,
             nangoConnection: task.connection,
@@ -108,8 +112,9 @@ export async function startSync(task: TaskSync, startScriptFn = startScript): Pr
             throw new Error(`Failed to create sync job for sync: ${task.syncId}. TaskId: ${task.id}`);
         }
 
-        await logCtx.info(`Starting sync '${task.syncName}'`, {
+        void logCtx.info(`Starting sync '${task.syncName}'`, {
             syncName: task.syncName,
+            syncVariant: task.syncVariant,
             syncType,
             connection: task.connection.connection_id,
             integration: task.connection.provider_config_key,
@@ -135,19 +140,20 @@ export async function startSync(task: TaskSync, startScriptFn = startScript): Pr
             secretKey: environment.secret_key,
             nangoConnectionId: task.connection.id,
             syncId: task.syncId,
+            syncVariant: task.syncVariant,
             syncJobId: syncJob.id,
             attributes: syncConfig.attributes,
             track_deletes: syncConfig.track_deletes,
             syncConfig,
             debug: task.debug || false,
-            runnerFlags: await getRunnerFlags(featureFlags),
-            startedAt: new Date(),
+            runnerFlags: await getRunnerFlags(),
+            startedAt,
             ...(lastSyncDate ? { lastSyncDate } : {}),
             endUser
         };
 
         if (task.debug) {
-            await logCtx.debug(`Last sync date is`, lastSyncDate);
+            void logCtx.debug(`Last sync date is ${lastSyncDate?.toISOString()}`);
         }
 
         metrics.increment(metrics.Types.SYNC_EXECUTION, 1, { accountId: team.id });
@@ -164,15 +170,20 @@ export async function startSync(task: TaskSync, startScriptFn = startScript): Pr
         return Ok(nangoProps);
     } catch (err) {
         const error = new NangoError('sync_script_failure', { error: err instanceof Error ? err.message : err });
+        const syncJobId = syncJob?.id;
+        if (syncJobId) {
+            await updateSyncJobStatus(syncJobId, SyncStatus.STOPPED);
+        }
         await onFailure({
             connection: task.connection,
             provider: providerConfig?.provider || 'unknown',
             providerConfig: providerConfig,
             syncId: task.syncId,
+            syncVariant: task.syncVariant,
             syncName: syncConfig?.sync_name || 'unknown',
             syncType: syncType,
-            syncJobId: syncJob?.id || -1,
-            activityLogId: logCtx?.id || 'unknown',
+            syncJobId,
+            activityLogId: logCtx?.id,
             debug: task.debug,
             team: team,
             environment,
@@ -180,16 +191,34 @@ export async function startSync(task: TaskSync, startScriptFn = startScript): Pr
             runTime: 0,
             models: syncConfig?.models || [],
             error,
-            endUser
+            endUser,
+            startedAt
         });
         return Err(error);
     }
 }
 
-export async function handleSyncSuccess({ nangoProps }: { nangoProps: NangoProps }): Promise<void> {
-    const logCtx = await logContextGetter.get({ id: String(nangoProps.activityLogId) });
+export async function handleSyncSuccess({ taskId, nangoProps }: { taskId: string; nangoProps: NangoProps }): Promise<void> {
+    const logCtx = await logContextGetter.get({ id: String(nangoProps.activityLogId), accountId: nangoProps.team.id });
+    logCtx.attachSpan(
+        new OtlpSpan(
+            getFormattedOperation(
+                { operation: { type: 'sync', action: 'run' } },
+                {
+                    account: nangoProps.team,
+                    environment: { id: nangoProps.environmentId, name: nangoProps.environmentName },
+                    integration: { id: nangoProps.syncConfig.nango_config_id, name: nangoProps.providerConfigKey, provider: nangoProps.provider },
+                    connection: { id: nangoProps.nangoConnectionId, name: nangoProps.connectionId },
+                    syncConfig: { id: nangoProps.syncConfig.id, name: nangoProps.syncConfig.sync_name },
+                    meta: { scriptVersion: nangoProps.syncConfig.version }
+                }
+            ),
+            nangoProps.startedAt
+        )
+    );
+
     const runTime = (new Date().getTime() - nangoProps.startedAt.getTime()) / 1000;
-    const syncType: SyncTypeLiteral = nangoProps.syncConfig.sync_type?.toLocaleLowerCase() === 'full' ? 'full' : 'incremental';
+    const syncType: SyncTypeLiteral = nangoProps.syncConfig.sync_type === 'full' ? 'full' : 'incremental';
 
     let team: DBTeam | undefined;
     let environment: DBEnvironment | undefined;
@@ -213,7 +242,7 @@ export async function handleSyncSuccess({ nangoProps }: { nangoProps: NangoProps
             throw new Error('connectionId is required to update sync status');
         }
         const lastSyncDate = await getLastSyncDate(nangoProps.syncId);
-        const connection: NangoConnection = {
+        const connection: ConnectionJobs = {
             id: nangoProps.nangoConnectionId,
             connection_id: nangoProps.connectionId,
             environment_id: nangoProps.environmentId,
@@ -239,6 +268,7 @@ export async function handleSyncSuccess({ nangoProps }: { nangoProps: NangoProps
                     syncId: nangoProps.syncId,
                     generation: nangoProps.syncJobId
                 });
+                void logCtx.info(`${model}: "track_deletes" post deleted ${deletedKeys.length} records`);
             }
 
             const updatedResults: Record<string, SyncResult> = {
@@ -258,16 +288,18 @@ export async function handleSyncSuccess({ nangoProps }: { nangoProps: NangoProps
                     provider: nangoProps.provider,
                     providerConfig,
                     syncId: nangoProps.syncId,
+                    syncVariant: nangoProps.syncVariant || 'base',
                     syncName: nangoProps.syncConfig.sync_name,
                     syncType,
                     syncJobId: nangoProps.syncJobId,
                     debug: nangoProps.debug,
-                    activityLogId: nangoProps.activityLogId!,
+                    activityLogId: nangoProps.activityLogId,
                     models: [model],
                     runTime,
                     syncConfig: nangoProps.syncConfig,
                     error: new NangoError('sync_job_update_failure', { syncJobId: nangoProps.syncJobId, model }),
-                    endUser: nangoProps.endUser
+                    endUser: nangoProps.endUser,
+                    startedAt: nangoProps.startedAt
                 });
                 return;
             }
@@ -312,6 +344,7 @@ export async function handleSyncSuccess({ nangoProps }: { nangoProps: NangoProps
                                 connection: connection,
                                 environment: environment,
                                 syncConfig: nangoProps.syncConfig,
+                                syncVariant: nangoProps.syncVariant || 'base',
                                 providerConfig,
                                 webhookSettings,
                                 model,
@@ -322,7 +355,7 @@ export async function handleSyncSuccess({ nangoProps }: { nangoProps: NangoProps
                                     updated,
                                     deleted
                                 },
-                                operation: lastSyncDate ? SyncType.INCREMENTAL : SyncType.FULL
+                                operation: lastSyncDate ? SyncJobsType.INCREMENTAL : SyncJobsType.FULL
                             });
 
                             if (res.isErr()) {
@@ -351,53 +384,32 @@ export async function handleSyncSuccess({ nangoProps }: { nangoProps: NangoProps
                     }
                 });
             }
-
-            await telemetry.log(
-                LogTypes.SYNC_SUCCESS,
-                `${nangoProps.syncConfig.sync_type || 'The'} sync '${nangoProps.syncConfig.sync_name}' for model ${model} was completed successfully`,
-                LogActionEnum.SYNC,
-                {
-                    model,
-                    environmentId: String(nangoProps.environmentId),
-                    responseResults: JSON.stringify(result),
-                    numberOfModels: '1',
-                    version: nangoProps.syncConfig.version || '-1',
-                    syncName: nangoProps.syncConfig.sync_name,
-                    connectionDetails: JSON.stringify(connection),
-                    connectionId: nangoProps.connectionId,
-                    providerConfigKey: nangoProps.providerConfigKey,
-                    syncId: nangoProps.syncId,
-                    syncJobId: String(nangoProps.syncJobId),
-                    syncType: nangoProps.syncConfig.sync_type!,
-                    totalRunTime: `${runTime} seconds`,
-                    debug: String(nangoProps.debug)
-                },
-                `syncId:${nangoProps.syncId}`
-            );
         }
 
         await logCtx.enrichOperation({
             meta: syncPayload
         });
 
-        await logCtx.info(
+        void logCtx.info(
             `${nangoProps.syncConfig.sync_type ? nangoProps.syncConfig.sync_type.replace(/^./, (c) => c.toUpperCase()) : 'The '} sync '${nangoProps.syncConfig.sync_name}' completed successfully`,
             syncPayload
         );
-
-        await updateSyncJobStatus(nangoProps.syncJobId, SyncStatus.SUCCESS);
 
         // set the last sync date to when the sync started in case
         // the sync is long running to make sure we wouldn't miss
         // any changes while the sync is running
         await setLastSyncDate(nangoProps.syncId, nangoProps.startedAt);
 
+        if (nangoProps.syncJobId) {
+            await updateSyncJobStatus(nangoProps.syncJobId, SyncStatus.SUCCESS);
+        }
+        await setTaskSuccess({ taskId, output: null });
+
         await slackService.removeFailingConnection({
             connection,
-            name: nangoProps.syncConfig.sync_name,
+            name: nangoProps.syncVariant === 'base' ? nangoProps.syncConfig.sync_name : `${nangoProps.syncConfig.sync_name}::${nangoProps.syncVariant}`,
             type: 'sync',
-            originalActivityLogId: nangoProps.activityLogId as unknown as string,
-            environment_id: nangoProps.environmentId,
+            originalActivityLogId: nangoProps.activityLogId,
             provider: nangoProps.provider
         });
 
@@ -419,6 +431,7 @@ export async function handleSyncSuccess({ nangoProps }: { nangoProps: NangoProps
             providerConfigKey: nangoProps.providerConfigKey,
             status: 'success',
             syncId: nangoProps.syncId,
+            syncVariant: nangoProps.syncVariant!,
             content: `The sync "${nangoProps.syncConfig.sync_name}" has been completed successfully.`,
             runTimeInSeconds: runTime,
             createdAt: Date.now(),
@@ -426,7 +439,7 @@ export async function handleSyncSuccess({ nangoProps }: { nangoProps: NangoProps
             endUser: nangoProps.endUser
         });
 
-        metrics.duration(metrics.Types.SYNC_TRACK_RUNTIME, Date.now() - nangoProps.startedAt.getTime());
+        metrics.duration(metrics.Types.SYNC_TRACK_RUNTIME, Date.now() - nangoProps.startedAt.getTime(), { accountId: nangoProps.team?.id });
         metrics.increment(metrics.Types.SYNC_SUCCESS);
 
         await logCtx.success();
@@ -435,7 +448,7 @@ export async function handleSyncSuccess({ nangoProps }: { nangoProps: NangoProps
             team,
             environment,
             connection: {
-                id: nangoProps.nangoConnectionId!,
+                id: nangoProps.nangoConnectionId,
                 connection_id: nangoProps.connectionId,
                 environment_id: nangoProps.environmentId,
                 provider_config_key: nangoProps.providerConfigKey
@@ -443,10 +456,11 @@ export async function handleSyncSuccess({ nangoProps }: { nangoProps: NangoProps
             provider: nangoProps.provider,
             providerConfig,
             syncId: nangoProps.syncId!,
+            syncVariant: nangoProps.syncVariant!,
             syncName: nangoProps.syncConfig.sync_name,
             syncType,
             syncJobId: nangoProps.syncJobId!,
-            activityLogId: nangoProps.activityLogId!,
+            activityLogId: nangoProps.activityLogId,
             syncConfig: nangoProps.syncConfig,
             debug: nangoProps.debug,
             models: nangoProps.syncConfig.models || [],
@@ -455,12 +469,13 @@ export async function handleSyncSuccess({ nangoProps }: { nangoProps: NangoProps
             failureSource: ErrorSourceEnum.CUSTOMER,
             isCancel: false,
             error: new NangoError('sync_script_failure', { error: err instanceof Error ? err.message : err }),
-            endUser: nangoProps.endUser
+            endUser: nangoProps.endUser,
+            startedAt: nangoProps.startedAt
         });
     }
 }
 
-export async function handleSyncError({ nangoProps, error }: { nangoProps: NangoProps; error: NangoError }): Promise<void> {
+export async function handleSyncError({ taskId, nangoProps, error }: { taskId: string; nangoProps: NangoProps; error: NangoError }): Promise<void> {
     let team: DBTeam | undefined;
     let environment: DBEnvironment | undefined;
     let providerConfig: Config | null = null;
@@ -476,11 +491,16 @@ export async function handleSyncError({ nangoProps, error }: { nangoProps: Nango
         throw new Error(`Provider config not found for connection: ${nangoProps.nangoConnectionId}`);
     }
 
+    if (nangoProps.syncJobId) {
+        await updateSyncJobStatus(nangoProps.syncJobId, SyncStatus.STOPPED);
+    }
+    await setTaskFailed({ taskId, error });
+
     await onFailure({
         team,
         environment,
         connection: {
-            id: nangoProps.nangoConnectionId!,
+            id: nangoProps.nangoConnectionId,
             connection_id: nangoProps.connectionId,
             environment_id: nangoProps.environmentId,
             provider_config_key: nangoProps.providerConfigKey
@@ -488,10 +508,11 @@ export async function handleSyncError({ nangoProps, error }: { nangoProps: Nango
         provider: nangoProps.provider,
         providerConfig,
         syncId: nangoProps.syncId!,
+        syncVariant: nangoProps.syncVariant!,
         syncName: nangoProps.syncConfig.sync_name,
         syncType: nangoProps.syncConfig.sync_type!,
         syncJobId: nangoProps.syncJobId!,
-        activityLogId: nangoProps.activityLogId!,
+        activityLogId: nangoProps.activityLogId,
         debug: nangoProps.debug,
         syncConfig: nangoProps.syncConfig,
         models: nangoProps.syncConfig.models || [],
@@ -499,7 +520,8 @@ export async function handleSyncError({ nangoProps, error }: { nangoProps: Nango
         failureSource: ErrorSourceEnum.CUSTOMER,
         isCancel: false,
         error,
-        endUser: nangoProps.endUser
+        endUser: nangoProps.endUser,
+        startedAt: nangoProps.startedAt
     });
 }
 
@@ -550,6 +572,7 @@ export async function abortSync(task: TaskSyncAbort): Promise<Result<void>> {
             provider: providerConfig.provider,
             providerConfig,
             syncId: task.syncId,
+            syncVariant: task.syncVariant,
             syncType: syncConfig.sync_type!,
             syncName: syncConfig.sync_name,
             syncJobId: syncJob.id,
@@ -565,7 +588,8 @@ export async function abortSync(task: TaskSyncAbort): Promise<Result<void>> {
             error: new NangoError('sync_script_failure', task.reason),
             endUser: getEndUser.isOk()
                 ? { id: getEndUser.value.id, endUserId: getEndUser.value.endUserId, orgId: getEndUser.value.organization?.organizationId || null }
-                : null
+                : null,
+            startedAt: new Date()
         });
         const setSuccess = await orchestratorClient.succeed({ taskId: task.id, output: {} });
         if (setSuccess.isErr()) {
@@ -589,6 +613,7 @@ async function onFailure({
     provider,
     providerConfig,
     syncId,
+    syncVariant,
     syncName,
     syncType,
     syncJobId,
@@ -601,29 +626,61 @@ async function onFailure({
     isCancel,
     failureSource,
     error,
-    endUser
+    endUser,
+    startedAt
 }: {
     team?: DBTeam | undefined;
     environment?: DBEnvironment | undefined;
-    connection: NangoConnection;
+    connection: ConnectionJobs;
     provider: string;
     providerConfig: Config | null;
     syncId: string;
+    syncVariant: string;
     syncName: string;
     syncType: SyncTypeLiteral;
-    syncJobId: number;
+    syncJobId: number | undefined;
     lastSyncDate?: Date | undefined;
-    activityLogId: string;
+    activityLogId?: string | undefined;
     debug: boolean;
     models: string[];
     runTime: number;
+    startedAt: Date;
     isCancel?: boolean;
     syncConfig: DBSyncConfig | null;
     failureSource?: ErrorSourceEnum;
     error: NangoError;
     endUser: NangoProps['endUser'];
 }): Promise<void> {
+    const logCtx = activityLogId ? await logContextGetter.get({ id: activityLogId, accountId: team?.id }) : null;
+
     if (team && environment) {
+        if (logCtx) {
+            try {
+                void slackService.reportFailure({
+                    account: team,
+                    environment,
+                    connection,
+                    name: syncVariant === 'base' ? syncName : `${syncName}::${syncVariant}`,
+                    type: 'sync',
+                    originalActivityLogId: logCtx.id,
+                    provider
+                });
+            } catch {
+                errorManager.report('slack notification service reported a failure', {
+                    environmentId: connection.environment_id,
+                    source: ErrorSourceEnum.PLATFORM,
+                    operation: LogActionEnum.SYNC,
+                    metadata: {
+                        syncName: syncName,
+                        connectionDetails: connection,
+                        syncId: syncId,
+                        syncJobId: syncJobId,
+                        syncType: syncType,
+                        debug: debug
+                    }
+                });
+            }
+        }
         void bigQueryClient.insert({
             executionType: 'sync',
             connectionId: connection.connection_id,
@@ -637,6 +694,7 @@ async function onFailure({
             providerConfigKey: connection.provider_config_key,
             status: 'failed',
             syncId: syncId,
+            syncVariant: syncVariant || 'base',
             content: error.message,
             runTimeInSeconds: runTime,
             createdAt: Date.now(),
@@ -645,23 +703,25 @@ async function onFailure({
         });
     }
 
-    const logCtx = await logContextGetter.get({ id: activityLogId });
-    try {
-        await slackService.reportFailure(connection, syncName, 'sync', logCtx.id, connection.environment_id, provider);
-    } catch {
-        errorManager.report('slack notification service reported a failure', {
-            environmentId: connection.environment_id,
-            source: ErrorSourceEnum.PLATFORM,
-            operation: LogActionEnum.SYNC,
-            metadata: {
-                syncName: syncName,
-                connectionDetails: connection,
-                syncId: syncId,
-                syncJobId: syncJobId,
-                syncType: syncType,
-                debug: debug
-            }
-        });
+    if (team) {
+        logCtx?.attachSpan(
+            new OtlpSpan(
+                getFormattedOperation(
+                    { operation: { type: 'sync', action: 'run' } },
+                    {
+                        account: team,
+                        environment: environment,
+                        integration: providerConfig
+                            ? { id: providerConfig.id!, name: providerConfig?.unique_key, provider: providerConfig.provider }
+                            : undefined,
+                        connection: { id: connection.id, name: connection.connection_id },
+                        syncConfig: syncConfig ? { id: syncConfig.id, name: syncName } : undefined,
+                        meta: syncConfig ? { scriptVersion: syncConfig.version } : undefined
+                    }
+                ),
+                new Date(startedAt)
+            )
+        );
     }
 
     if (environment) {
@@ -684,6 +744,7 @@ async function onFailure({
                         account: team,
                         providerConfig,
                         syncConfig,
+                        syncVariant,
                         connection: connection,
                         environment: environment,
                         webhookSettings,
@@ -694,7 +755,7 @@ async function onFailure({
                             description: error.message
                         },
                         now: lastSyncDate,
-                        operation: lastSyncDate ? SyncType.INCREMENTAL : SyncType.FULL
+                        operation: lastSyncDate ? SyncJobsType.INCREMENTAL : SyncJobsType.FULL
                     });
 
                     if (res.isErr()) {
@@ -709,13 +770,11 @@ async function onFailure({
         }
     }
 
-    await updateSyncJobStatus(syncJobId, SyncStatus.STOPPED);
-
-    await logCtx.enrichOperation({ error });
+    await logCtx?.enrichOperation({ error });
     if (isCancel) {
-        await logCtx.cancel();
+        await logCtx?.cancel();
     } else {
-        await logCtx.failed();
+        await logCtx?.failed();
     }
 
     errorManager.report(error.message, {
@@ -732,33 +791,16 @@ async function onFailure({
         }
     });
 
-    await telemetry.log(
-        LogTypes.SYNC_FAILURE,
-        error.message,
-        LogActionEnum.SYNC,
-        {
-            environmentId: String(connection.environment_id),
-            syncName: syncName,
-            connectionDetails: JSON.stringify(connection),
-            connectionId: connection.connection_id,
-            providerConfigKey: connection.provider_config_key,
-            syncId: syncId,
-            syncJobId: String(syncJobId),
-            syncType: syncType,
-            debug: String(debug),
-            level: 'error'
-        },
-        `syncId:${syncId}`
-    );
-
-    await errorNotificationService.sync.create({
-        action: 'run',
-        type: 'sync',
-        sync_id: syncId,
-        connection_id: connection.id!,
-        log_id: logCtx.id,
-        active: true
-    });
+    if (logCtx) {
+        await errorNotificationService.sync.create({
+            action: 'run',
+            type: 'sync',
+            sync_id: syncId,
+            connection_id: connection.id,
+            log_id: logCtx.id,
+            active: true
+        });
+    }
 
     metrics.increment(metrics.Types.SYNC_FAILURE);
 }

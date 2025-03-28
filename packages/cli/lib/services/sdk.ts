@@ -1,10 +1,14 @@
+import { isAxiosError } from 'axios';
+import chalk from 'chalk';
+
 import { Nango } from '@nangohq/node';
-import type { ProxyConfiguration } from '@nangohq/runner-sdk';
-import { InvalidRecordSDKError, NangoActionBase, NangoSyncBase } from '@nangohq/runner-sdk';
-import type { AdminAxiosProps } from '@nangohq/node';
-import type { Metadata, NangoProps, UserLogParameters } from '@nangohq/types';
-import type { AxiosResponse } from 'axios';
+import { BASE_VARIANT, InvalidRecordSDKError, NangoActionBase, NangoSyncBase } from '@nangohq/runner-sdk';
+
 import type { DryRunService } from './dryrun.service';
+import type { AdminAxiosProps, ListRecordsRequestConfig } from '@nangohq/node';
+import type { ProxyConfiguration } from '@nangohq/runner-sdk';
+import type { GetPublicConnection, Metadata, NangoProps, UserLogParameters } from '@nangohq/types';
+import type { AxiosError, AxiosResponse } from 'axios';
 
 const logLevelToLogger = {
     info: 'info',
@@ -14,6 +18,12 @@ const logLevelToLogger = {
     http: 'info',
     verbose: 'debug',
     silly: 'debug'
+} as const;
+const logLevelToColor = {
+    info: 'white',
+    debug: 'gray',
+    error: 'red',
+    warn: 'yellow'
 } as const;
 
 export class NangoActionCLI extends NangoActionBase {
@@ -26,28 +36,19 @@ export class NangoActionCLI extends NangoActionBase {
 
         this.dryRunService = cliProps.dryRunService;
 
-        const axiosSettings: AdminAxiosProps = {
-            userAgent: 'sdk'
-        };
-
-        if (props.axios?.response) {
-            axiosSettings.interceptors = {
-                response: {
-                    onFulfilled: props.axios.response.onFulfilled,
-                    onRejected: props.axios.response.onRejected
-                }
-            };
-        }
-
-        this.nango = new Nango({ isSync: false, dryRun: true, ...props }, axiosSettings);
+        this.nango = new Nango({ isSync: false, dryRun: true, ...props }, getAxiosSettings(props));
     }
 
-    public override proxy<T = any>(config: ProxyConfiguration): Promise<AxiosResponse<T>> {
+    public override async proxy<T = any>(config: ProxyConfiguration): Promise<AxiosResponse<T>> {
         if (!config.method) {
             config.method = 'GET';
         }
 
-        return this.nango.proxy(config);
+        const res = await this.nango.proxy(config);
+        if (isAxiosError(res)) {
+            throw res;
+        }
+        return res;
     }
 
     public override log(...args: [...any]): void {
@@ -72,17 +73,28 @@ export class NangoActionCLI extends NangoActionBase {
         if (args.length > 1 && 'type' in args[1] && args[1].type === 'http') {
             console[logLevel](args[0], { status: args[1]?.response?.code || 'xxx' });
         } else {
-            console[logLevel](...args);
+            console[logLevel](chalk[logLevelToColor[logLevel]](...args));
         }
     }
 
-    public triggerSync(_providerConfigKey: string, connectionId: string, syncName: string, _fullResync?: boolean): Promise<void | string> {
+    public triggerSync(
+        _providerConfigKey: string,
+        connectionId: string,
+        sync: string | { name: string; variant: string },
+        _fullResync?: boolean
+    ): Promise<void | string> {
+        const syncArgs = typeof sync === 'string' ? { sync } : { sync: sync.name, variant: sync.variant };
         return this.dryRunService.run({
-            sync: syncName,
+            ...syncArgs,
             connectionId,
             autoConfirm: true,
             debug: false
         });
+    }
+
+    public startSync(_providerConfigKey: string, _syncs: (string | { name: string; variant: string })[], _connectionId?: string): Promise<void> {
+        this.log(`This has no effect but on a remote Nango instance would start a schedule`);
+        return Promise.resolve();
     }
 }
 
@@ -109,35 +121,39 @@ export class NangoSyncCLI extends NangoSyncBase {
 
         this.dryRunService = cliProps.dryRunService;
 
-        const axiosSettings: AdminAxiosProps = {
-            userAgent: 'sdk'
-        };
-
-        if (props.axios?.response) {
-            axiosSettings.interceptors = {
-                response: {
-                    onFulfilled: props.axios.response.onFulfilled,
-                    onRejected: props.axios.response.onRejected
-                }
-            };
-        }
-
-        this.nango = new Nango({ isSync: true, dryRun: true, ...props }, axiosSettings);
+        this.nango = new Nango({ isSync: true, dryRun: true, ...props }, getAxiosSettings(props));
     }
 
     // Can't double extends
     proxy = NangoActionCLI['prototype']['proxy'];
     log = NangoActionCLI['prototype']['log'];
     triggerSync = NangoActionCLI['prototype']['triggerSync'];
+    startSync = NangoActionCLI['prototype']['startSync'];
 
-    public batchSave<T = any>(results: T[], model: string) {
+    public batchSave<T extends object>(results: T[], model: string) {
         if (!results || results.length === 0) {
             console.info('batchSave received an empty array. No records to save.');
             return true;
         }
 
+        // Deduplicate results first before removing metadata keeping order and last occurrence
+        const seenIds = new Set<string | number>();
+        const deduplicatedResults: (T & { id: string | number })[] = [];
+
+        for (let i = results.length - 1; i >= 0; i--) {
+            const record = results[i] as T & { id: string | number };
+            if (!seenIds.has(record.id)) {
+                seenIds.add(record.id);
+                deduplicatedResults.unshift(record);
+            } else {
+                console.warn(`batchSave detected duplicate records for ID: ${record.id}. Keeping the last occurrence.`);
+            }
+        }
+
+        const resultsWithoutMetadata = this.removeMetadata(deduplicatedResults);
+
         // Validate records
-        const hasErrors = this.validateRecords(model, results);
+        const hasErrors = this.validateRecords(model, resultsWithoutMetadata);
 
         if (hasErrors.length > 0) {
             this.log('Invalid record payload. Use `--validation` option to see the details', { level: 'warn' });
@@ -146,52 +162,62 @@ export class NangoSyncCLI extends NangoSyncBase {
             }
         }
 
-        this.logMessages?.messages.push(`A batch save call would save the following data to the ${model} model:`);
-        for (const msg of results) {
+        this.logMessages?.messages.push(
+            `A batch save call would save the following data to the ${model} model${this.variant === BASE_VARIANT ? `` : ` (variant: ${this.variant})`}:`
+        );
+        for (const msg of resultsWithoutMetadata) {
             this.logMessages?.messages.push(msg);
         }
         if (this.logMessages && this.logMessages.counts) {
-            this.logMessages.counts.added = Number(this.logMessages.counts.added) + results.length;
+            this.logMessages.counts.added = Number(this.logMessages.counts.added) + deduplicatedResults.length;
         }
+        const modelFullName = this.modelFullName(model);
         if (this.rawSaveOutput) {
-            if (!this.rawSaveOutput.has(model)) {
-                this.rawSaveOutput.set(model, []);
+            if (!this.rawSaveOutput.has(modelFullName)) {
+                this.rawSaveOutput.set(modelFullName, []);
             }
-            this.rawSaveOutput.get(model)?.push(...results);
+            this.rawSaveOutput.get(modelFullName)?.push(...deduplicatedResults);
         }
         return true;
     }
 
-    public batchDelete<T = any>(results: T[], model: string) {
+    public batchDelete<T extends object>(results: T[], model: string) {
         if (!results || results.length === 0) {
             console.info('batchDelete received an empty array. No records to delete.');
             return true;
         }
 
+        const resultsWithoutMetadata = this.removeMetadata(results);
+
         this.logMessages?.messages.push(`A batch delete call would delete the following data:`);
-        for (const msg of results) {
+        for (const msg of resultsWithoutMetadata) {
             this.logMessages?.messages.push(msg);
         }
         if (this.logMessages && this.logMessages.counts) {
             this.logMessages.counts.deleted = Number(this.logMessages.counts.deleted) + results.length;
         }
+        const modelFullName = this.modelFullName(model);
         if (this.rawDeleteOutput) {
-            if (!this.rawDeleteOutput.has(model)) {
-                this.rawDeleteOutput.set(model, []);
+            if (!this.rawDeleteOutput.has(modelFullName)) {
+                this.rawDeleteOutput.set(modelFullName, []);
             }
-            this.rawDeleteOutput.get(model)?.push(...results);
+            this.rawDeleteOutput.get(modelFullName)?.push(...results);
         }
         return true;
     }
 
-    public batchUpdate<T = any>(results: T[], model: string) {
+    public batchUpdate<T extends object>(results: T[], model: string) {
         if (!results || results.length === 0) {
             console.info('batchUpdate received an empty array. No records to update.');
             return true;
         }
 
-        this.logMessages?.messages.push(`A batch update call would update the following data to the ${model} model:`);
-        for (const msg of results) {
+        const resultsWithoutMetadata = this.removeMetadata(results);
+
+        this.logMessages?.messages.push(
+            `A batch update call would save the following data to the ${model} model${this.variant === BASE_VARIANT ? `` : ` (variant: ${this.variant})`}:`
+        );
+        for (const msg of resultsWithoutMetadata) {
             this.logMessages?.messages.push(msg);
         }
         if (this.logMessages && this.logMessages.counts) {
@@ -207,4 +233,99 @@ export class NangoSyncCLI extends NangoSyncBase {
 
         return super.getMetadata<TMetadata>();
     }
+
+    public override async getConnection(providerConfigKeyOverride?: string, connectionIdOverride?: string): Promise<GetPublicConnection['Success']> {
+        const fetchedConnection = await super.getConnection(providerConfigKeyOverride, connectionIdOverride);
+        if (this.stubbedMetadata) {
+            return { ...fetchedConnection, metadata: this.stubbedMetadata };
+        }
+
+        return fetchedConnection;
+    }
+
+    public override async getRecordsByIds<K = string | number, T = any>(ids: K[], model: string): Promise<Map<K, T>> {
+        const objects = new Map<K, T>();
+
+        if (ids.length === 0) {
+            return objects;
+        }
+
+        const externalIds = ids.map((id) => String(id).replaceAll('\x00', ''));
+        const externalIdMap = new Map<string, K>(ids.map((id) => [String(id), id]));
+
+        let cursor: string | null = null;
+        for (let i = 0; i < ids.length; i += 100) {
+            const batchIds = externalIds.slice(i, i + 100);
+
+            const props: ListRecordsRequestConfig = {
+                providerConfigKey: this.providerConfigKey,
+                connectionId: this.connectionId,
+                model: this.modelFullName(model),
+                ids: batchIds
+            };
+            if (cursor) {
+                props.cursor = cursor;
+            }
+
+            const response = await this.nango.listRecords<any>(props);
+
+            const batchRecords = response.records;
+            cursor = response.next_cursor;
+
+            for (const record of batchRecords) {
+                const stringId = String(record.id);
+                const realId = externalIdMap.get(stringId);
+                if (realId !== undefined) {
+                    objects.set(realId, record as T);
+                }
+            }
+        }
+
+        return objects;
+    }
+
+    public override async setMergingStrategy(_merging: { strategy: 'ignore_if_modified_after' | 'override' }, _model: string) {
+        // Not applicable to CLI
+        return Promise.resolve();
+    }
+}
+
+function getAxiosSettings(props: NangoProps) {
+    const axiosSettings: AdminAxiosProps = {
+        userAgent: 'sdk'
+    };
+
+    if (props.axios?.response) {
+        axiosSettings.interceptors = {
+            response: {
+                onFulfilled: props.axios.response.onFulfilled,
+                onRejected: props.axios.response.onRejected
+            }
+        };
+    } else {
+        axiosSettings.interceptors = {
+            response: {
+                onFulfilled: (res) => {
+                    logAPICall(res);
+                    return res;
+                },
+                onRejected: (err) => {
+                    logAPICall(err as AxiosError);
+                    return err;
+                }
+            }
+        };
+    }
+
+    return axiosSettings;
+}
+
+function logAPICall(res: AxiosResponse | AxiosError): void {
+    const method = res.config?.method?.toLocaleUpperCase(); // axios put it in lowercase
+    if (isAxiosError(res)) {
+        console.log(chalk.blue('http'), `[${chalk[res.status || 999 >= 400 ? 'red' : 'green'](res.status || 'xxx')}] ${method} ${res.config?.url}`);
+        return;
+    }
+
+    console.log(chalk.blue('http'), `[${chalk[res.status >= 400 ? 'red' : 'green'](res.status)}] ${method} ${res.config.url}`);
 }

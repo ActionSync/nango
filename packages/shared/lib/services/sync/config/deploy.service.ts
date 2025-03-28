@@ -1,29 +1,31 @@
 import db, { dbNamespace } from '@nangohq/database';
 import configService from '../../config.service.js';
 import remoteFileService from '../../file/remote.service.js';
-import { getSyncsByProviderConfigAndSyncName } from '../sync.service.js';
+import { getSyncsByProviderConfigKey } from '../sync.service.js';
 import { getSyncAndActionConfigByParams, increment, getSyncAndActionConfigsBySyncNameAndConfigId } from './config.service.js';
 import connectionService from '../../connection.service.js';
-import { LogActionEnum } from '../../../models/Telemetry.js';
 import type { ServiceResponse } from '../../../models/Generic.js';
-import type { SyncModelSchema, SyncConfig, SyncType, Sync } from '../../../models/Sync.js';
+import type { SyncModelSchema, Sync } from '../../../models/Sync.js';
 import type {
     DBEnvironment,
     DBTeam,
     CleanedIncomingFlowConfig,
-    IncomingPreBuiltFlowConfig,
+    PreBuiltFlowConfig,
     NangoModel,
     OnEventScriptsByProvider,
     NangoSyncEndpointV2,
-    IncomingFlowConfig,
     HTTP_METHOD,
     SyncDeploymentResult,
     DBSyncEndpointCreate,
-    DBSyncEndpoint
+    DBSyncEndpoint,
+    SyncTypeLiteral,
+    DBSyncConfig,
+    DBSyncConfigInsert,
+    NangoSyncConfig,
+    CLIDeployFlowConfig
 } from '@nangohq/types';
 import { onEventScriptService } from '../../on-event-scripts.service.js';
 import { NangoError } from '../../../utils/error.js';
-import telemetry, { LogTypes } from '../../../utils/telemetry.js';
 import { env, Ok } from '@nangohq/utils';
 import type { Result } from '@nangohq/utils';
 import type { LogContext, LogContextGetter } from '@nangohq/logs';
@@ -31,7 +33,6 @@ import type { Orchestrator } from '../../../clients/orchestrator.js';
 import type { Merge } from 'type-fest';
 import type { JSONSchema7 } from 'json-schema';
 import type { Config } from '../../../models/Provider.js';
-import type { NangoSyncConfig } from '../../../models/NangoConfig.js';
 import { nangoConfigFile } from '@nangohq/nango-yaml';
 
 const TABLE = dbNamespace + 'sync_configs';
@@ -51,7 +52,7 @@ interface SyncConfigResult {
 /**
  * Transform received incoming flow from the CLI to an internally standard object
  */
-export function cleanIncomingFlow(flowConfigs: IncomingFlowConfig[]): CleanedIncomingFlowConfig[] {
+export function cleanIncomingFlow(flowConfigs: CLIDeployFlowConfig[]): CleanedIncomingFlowConfig[] {
     const cleaned: CleanedIncomingFlowConfig[] = [];
     for (const flow of flowConfigs) {
         const parsedEndpoints = flow.endpoints
@@ -89,8 +90,6 @@ export async function deploy({
     orchestrator: Orchestrator;
     debug?: boolean;
 }): Promise<ServiceResponse<SyncConfigResult | null>> {
-    const providers = flows.map((flow) => flow.providerConfigKey);
-
     const logCtx = await logContextGetter.create({ operation: { type: 'deploy', action: 'custom' } }, { account, environment });
 
     if (nangoYamlBody) {
@@ -100,7 +99,7 @@ export async function deploy({
     const deployResults: SyncDeploymentResult[] = [];
     const flowsWithoutScript: FlowWithoutScript[] = [];
     const idsToMarkAsInactive: number[] = [];
-    const syncConfigs: SyncConfig[] = [];
+    const syncConfigs: DBSyncConfigInsert[] = [];
     for (const flow of flows) {
         const flowParsed: FlowParsed = {
             ...flow,
@@ -121,7 +120,7 @@ export async function deploy({
         });
 
         if (!success || !response) {
-            await logCtx.error(`Failed to deploy script "${flow.syncName}"`, { error });
+            void logCtx.error(`Failed to deploy script "${flow.syncName}"`, { error });
             await logCtx.failed();
             return { success, error, response: null };
         }
@@ -131,7 +130,7 @@ export async function deploy({
         const deployResult: SyncDeploymentResult = {
             name: flow.syncName,
             models: flow.models,
-            version: response.syncConfig.version as string,
+            version: response.syncConfig.version,
             providerConfigKey: flow.providerConfigKey,
             type: flow.type
         };
@@ -145,7 +144,7 @@ export async function deploy({
 
     if (syncConfigs.length === 0) {
         if (debug) {
-            await logCtx.debug('All syncs were deleted');
+            void logCtx.debug('All syncs were deleted');
         }
         await logCtx.success();
 
@@ -156,7 +155,7 @@ export async function deploy({
 
     try {
         const flowIds = await db.knex
-            .from<SyncConfig>(TABLE)
+            .from<DBSyncConfig>(TABLE)
             .insert(
                 syncConfigs.map((syncConfig) => {
                     // We need to stringify before inserting
@@ -172,7 +171,7 @@ export async function deploy({
                 continue;
             }
 
-            endpoints.push(...endpointToSyncEndpoint(flow, row.id!));
+            endpoints.push(...endpointToSyncEndpoint(flow, row.id));
         }
 
         if (endpoints.length > 0) {
@@ -197,7 +196,7 @@ export async function deploy({
             await switchActiveSyncConfig(id);
         }
 
-        await logCtx.info(`Successfully deployed ${flows.length} script${flows.length > 1 ? 's' : ''}`, {
+        void logCtx.info(`Successfully deployed ${flows.length} script${flows.length > 1 ? 's' : ''}`, {
             nameOfType,
             count: flows.length,
             syncNames: flowNames,
@@ -205,41 +204,10 @@ export async function deploy({
         });
         await logCtx.success();
 
-        const shortContent = `Successfully deployed the ${nameOfType}${flows.length > 1 ? 's' : ''} (${flowNames.join(', ')}).`;
-
-        await telemetry.log(
-            LogTypes.SYNC_DEPLOY_SUCCESS,
-            shortContent,
-            LogActionEnum.SYNC_DEPLOY,
-            {
-                environmentId: String(environment.id),
-                syncName: flows.map((flow) => flow['syncName']).join(', '),
-                accountId: String(account.id),
-                providers: providers.join(', ')
-            },
-            'deploy_type:custom'
-        );
-
         return { success: true, error: null, response: { result: deployResults, logCtx } };
     } catch (err) {
-        await logCtx.error('Failed to deploy scripts', { error: err });
+        void logCtx.error('Failed to deploy scripts', { error: err });
         await logCtx.failed();
-
-        const shortContent = `Failure to deploy the syncs (${flows.map((flow) => flow.syncName).join(', ')}).`;
-
-        await telemetry.log(
-            LogTypes.SYNC_DEPLOY_FAILURE,
-            shortContent,
-            LogActionEnum.SYNC_DEPLOY,
-            {
-                environmentId: String(environment.id),
-                syncName: flowNames.join(', '),
-                accountId: String(account.id),
-                providers: providers.join(', '),
-                level: 'error'
-            },
-            'deploy_type:custom'
-        );
 
         throw new NangoError('error_creating_sync_config');
     }
@@ -257,7 +225,7 @@ export async function upgradePreBuilt({
     account: DBTeam;
     config: Config;
     // The current sync config
-    syncConfig: SyncConfig;
+    syncConfig: DBSyncConfig;
     // The new version of the flow
     flow: NangoSyncConfig;
     logContextGetter: LogContextGetter;
@@ -276,7 +244,7 @@ export async function upgradePreBuilt({
     );
 
     if (!file_location) {
-        await logCtx.error('There was an error uploading the template', { isPublic: is_public, syncName: name, version: flow.version });
+        void logCtx.error('There was an error uploading the template', { isPublic: is_public, syncName: name, version: flow.version });
         await logCtx.failed();
 
         throw new NangoError('file_upload_error');
@@ -292,8 +260,9 @@ export async function upgradePreBuilt({
 
     const now = new Date();
 
-    const flowData: SyncConfig = {
-        ...syncConfig,
+    const { id, ...restWithoutId } = syncConfig;
+    const flowData: DBSyncConfigInsert = {
+        ...restWithoutId,
         created_at: now,
         updated_at: now,
         version: flow.version!,
@@ -304,10 +273,9 @@ export async function upgradePreBuilt({
         track_deletes: flow.track_deletes === true,
         models: flow.returns
     };
-    delete flowData.id;
 
     try {
-        const [newSyncConfig] = await db.knex.from<SyncConfig>(TABLE).insert(flowData).returning('*');
+        const [newSyncConfig] = await db.knex.from<DBSyncConfig>(TABLE).insert(flowData).returning('*');
 
         if (!newSyncConfig?.id) {
             throw new NangoError('error_creating_sync_config');
@@ -341,48 +309,15 @@ export async function upgradePreBuilt({
             await db.knex.from<DBSyncEndpoint>(ENDPOINT_TABLE).insert(endpoints);
         }
 
-        await db.knex.from<SyncConfig>(TABLE).update({ active: false }).whereIn('id', [syncConfig.id]);
+        await db.knex.from<DBSyncConfig>(TABLE).update({ active: false }).whereIn('id', [syncConfig.id]);
 
-        await logCtx.info('Successfully deployed', { nameOfType, configs: name });
+        void logCtx.info('Successfully deployed', { nameOfType, configs: name });
         await logCtx.success();
-
-        await telemetry.log(
-            LogTypes.SYNC_DEPLOY_SUCCESS,
-            `Successfully upgraded the ${flow.type} (${name}).`,
-            LogActionEnum.SYNC_DEPLOY,
-            {
-                environmentId: String(environment.id),
-                syncName: name,
-                accountId: String(account.id),
-                integrations: provider,
-                preBuilt: 'true',
-                is_public: 'true'
-            },
-            `deploy_type:public.template`
-        );
 
         return Ok(true);
     } catch (err) {
-        const content = `Failed to deploy the ${flow.type} ${flow.name}.`;
-
-        await logCtx.error('Failed to upgrade', { type: flow.type, name: flow.name, error: err });
+        void logCtx.error('Failed to upgrade', { type: flow.type, name: flow.name, error: err });
         await logCtx.failed();
-
-        await telemetry.log(
-            LogTypes.SYNC_DEPLOY_FAILURE,
-            content,
-            LogActionEnum.SYNC_DEPLOY,
-            {
-                environmentId: String(environment.id),
-                syncName: flow.name,
-                accountId: String(account.id),
-                integration: provider,
-                preBuilt: 'true',
-                is_public: 'true',
-                level: 'error'
-            },
-            `deploy_type:public.template`
-        );
 
         throw new NangoError('error_creating_sync_config');
     }
@@ -397,7 +332,7 @@ export async function deployPreBuilt({
 }: {
     environment: DBEnvironment;
     account: DBTeam;
-    configs: IncomingPreBuiltFlowConfig[];
+    configs: PreBuiltFlowConfig[];
     logContextGetter: LogContextGetter;
     orchestrator: Orchestrator;
 }): Promise<ServiceResponse<SyncConfigResult | null>> {
@@ -411,7 +346,7 @@ export async function deployPreBuilt({
     const logCtx = await logContextGetter.create({ operation: { type: 'deploy', action: 'prebuilt' } }, { account, environment });
 
     const idsToMarkAsInactive = [];
-    const insertData: SyncConfig[] = [];
+    const insertData: DBSyncConfigInsert[] = [];
     let nango_config_id: number;
     let provider_config_key: string;
 
@@ -475,7 +410,11 @@ export async function deployPreBuilt({
             bumpedVersion = increment(previousSyncAndActionConfig.version as string | number).toString();
 
             if (runs) {
-                const syncs = await getSyncsByProviderConfigAndSyncName(environment.id, provider_config_key, sync_name);
+                const syncs = await getSyncsByProviderConfigKey({
+                    environmentId: environment.id,
+                    providerConfigKey: provider_config_key,
+                    filter: [{ syncName: sync_name, syncVariant: 'base' }]
+                });
                 for (const sync of syncs) {
                     const interval = sync.frequency || runs;
                     const res = await orchestrator.updateSyncFrequency({
@@ -518,7 +457,7 @@ export async function deployPreBuilt({
         }
 
         if (!file_location) {
-            await logCtx.error('There was an error uploading the template', { isPublic: is_public, syncName: sync_name, version });
+            void logCtx.error('There was an error uploading the template', { isPublic: is_public, syncName: sync_name, version });
             await logCtx.failed();
 
             throw new NangoError('file_upload_error');
@@ -566,7 +505,7 @@ export async function deployPreBuilt({
         const oldConfigs = await getSyncAndActionConfigsBySyncNameAndConfigId(environment.id, nango_config_id, sync_name);
 
         if (oldConfigs.length > 0) {
-            const ids = oldConfigs.map((oldConfig: SyncConfig) => oldConfig.id as number);
+            const ids = oldConfigs.map((oldConfig: DBSyncConfig) => oldConfig.id);
             idsToMarkAsInactive.push(...ids);
         }
 
@@ -582,7 +521,7 @@ export async function deployPreBuilt({
             model_schema.push(input);
         }
 
-        const flowData: SyncConfig = {
+        const flowData: DBSyncConfigInsert = {
             created_at,
             sync_name,
             nango_config_id,
@@ -591,7 +530,7 @@ export async function deployPreBuilt({
             models: flowModels,
             active: true,
             runs,
-            input: input && typeof input !== 'string' ? String(input.name) : input,
+            input: (input && typeof input !== 'string' ? String(input.name) : input) || null,
             model_schema: JSON.stringify(model_schema) as unknown as SyncModelSchema[],
             environment_id: environment.id,
             deleted: false,
@@ -605,7 +544,8 @@ export async function deployPreBuilt({
             enabled: true,
             webhook_subscriptions: null,
             models_json_schema: flowJsonSchema,
-            updated_at: new Date()
+            updated_at: new Date(),
+            sync_type: 'sync_type' in config ? (config.sync_type as SyncTypeLiteral) : null
         };
 
         insertData.push(flowData);
@@ -620,10 +560,8 @@ export async function deployPreBuilt({
         });
     }
 
-    const isPublic = configs.every((config) => config.is_public);
-
     try {
-        const syncConfigs = await db.knex.from<SyncConfig>(TABLE).insert(insertData).returning('*');
+        const syncConfigs = await db.knex.from<DBSyncConfig>(TABLE).insert(insertData).returning('*');
 
         flowReturnData.forEach((flow, index) => {
             const row = syncConfigs[index];
@@ -639,7 +577,7 @@ export async function deployPreBuilt({
                 continue;
             }
 
-            endpoints.push(...endpointToSyncEndpoint(flow, row.id!));
+            endpoints.push(...endpointToSyncEndpoint(flow, row.id));
         }
 
         if (endpoints.length > 0) {
@@ -650,58 +588,15 @@ export async function deployPreBuilt({
             await switchActiveSyncConfig(id);
         }
 
-        let content;
         const names = configs.map((config) => config.name || config.syncName);
-        if (isPublic) {
-            content = `Successfully deployed the ${nameOfType}${configs.length === 1 ? '' : 's'} template${configs.length === 1 ? '' : 's'} (${names.join(
-                ', '
-            )}).`;
-        } else {
-            content = `There ${configs.length === 1 ? 'was' : 'were'} ${configs.length} ${nameOfType}${configs.length === 1 ? '' : 's'} private template${
-                configs.length === 1 ? '' : 's'
-            } (${names.join(', ')}) deployed to your account by a Nango admin.`;
-        }
 
-        await logCtx.info('Successfully deployed', { nameOfType, configs: names });
+        void logCtx.info('Successfully deployed', { nameOfType, configs: names });
         await logCtx.success();
-
-        await telemetry.log(
-            LogTypes.SYNC_DEPLOY_SUCCESS,
-            content,
-            LogActionEnum.SYNC_DEPLOY,
-            {
-                environmentId: String(environment.id),
-                syncName: configs.map((config) => config.name).join(', '),
-                accountId: String(account.id),
-                integrations: configs.map((config) => config.provider).join(', '),
-                preBuilt: 'true',
-                is_public: isPublic ? 'true' : 'false'
-            },
-            `deploy_type:${isPublic ? 'public.' : 'private.'}template`
-        );
 
         return { success: true, error: null, response: { result: flowReturnData, logCtx } };
     } catch (err) {
-        const content = `Failed to deploy the ${nameOfType}${configs.length === 1 ? '' : 's'} (${configs.map((config) => config.name).join(', ')}).`;
-
-        await logCtx.error('Failed to deploy', { nameOfType, configs: configs.map((config) => config.name), error: err });
+        void logCtx.error('Failed to deploy', { nameOfType, configs: configs.map((config) => config.name), error: err });
         await logCtx.failed();
-
-        await telemetry.log(
-            LogTypes.SYNC_DEPLOY_FAILURE,
-            content,
-            LogActionEnum.SYNC_DEPLOY,
-            {
-                environmentId: String(environment.id),
-                syncName: configs.map((config) => config.name).join(', '),
-                accountId: String(account.id),
-                integration: configs.map((config) => config.provider).join(', '),
-                preBuilt: 'true',
-                is_public: isPublic ? 'true' : 'false',
-                level: 'error'
-            },
-            `deploy_type:${isPublic ? 'public.' : 'private.'}template`
-        );
 
         throw new NangoError('error_creating_sync_config');
     }
@@ -725,7 +620,7 @@ async function compileDeployInfo({
     debug: boolean;
     logCtx: LogContext;
     orchestrator: Orchestrator;
-}): Promise<ServiceResponse<{ idsToMarkAsInactive: number[]; syncConfig: SyncConfig }>> {
+}): Promise<ServiceResponse<{ idsToMarkAsInactive: number[]; syncConfig: DBSyncConfigInsert }>> {
     const {
         syncName,
         providerConfigKey,
@@ -744,7 +639,7 @@ async function compileDeployInfo({
 
     if (!config) {
         const error = new NangoError('unknown_provider_config', { providerConfigKey });
-        await logCtx.error(error.message);
+        void logCtx.error(error.message);
 
         return { success: false, error, response: null };
     }
@@ -756,11 +651,11 @@ async function compileDeployInfo({
         bumpedVersion = increment(previousSyncAndActionConfig.version as string | number).toString();
 
         if (debug) {
-            await logCtx.debug('A previous sync config was found', { syncName, prevVersion: previousSyncAndActionConfig.version });
+            void logCtx.debug('A previous sync config was found', { syncName, prevVersion: previousSyncAndActionConfig.version });
         }
 
         if (runs) {
-            const syncs = await getSyncsByProviderConfigAndSyncName(environment_id, providerConfigKey, syncName);
+            const syncs = await getSyncsByProviderConfigKey({ environmentId: environment_id, providerConfigKey, filter: [{ syncName, syncVariant: 'base' }] });
 
             for (const sync of syncs) {
                 const interval = sync.frequency || runs;
@@ -802,7 +697,7 @@ async function compileDeployInfo({
     }
 
     if (!file_location) {
-        await logCtx.error('There was an error uploading the sync file', { fileName: `${syncName}-v${version}.js` });
+        void logCtx.error('There was an error uploading the sync file', { fileName: `${syncName}-v${version}.js` });
 
         // this is a platform error so throw this
         throw new NangoError('file_upload_error');
@@ -812,7 +707,7 @@ async function compileDeployInfo({
     let lastSyncWasEnabled = true;
 
     if (oldConfigs.length > 0) {
-        const ids = oldConfigs.map((oldConfig: SyncConfig) => oldConfig.id as number);
+        const ids = oldConfigs.map((oldConfig: DBSyncConfig) => oldConfig.id);
         idsToMarkAsInactive.push(...ids);
         const lastConfig = oldConfigs[oldConfigs.length - 1];
         if (lastConfig) {
@@ -868,6 +763,8 @@ async function compileDeployInfo({
         response: {
             idsToMarkAsInactive,
             syncConfig: {
+                is_public: false,
+                pre_built: false,
                 environment_id,
                 nango_config_id: config.id as number,
                 sync_name: syncName,
@@ -882,8 +779,8 @@ async function compileDeployInfo({
                 runs,
                 active: true,
                 model_schema: model_schema as unknown as SyncModelSchema[],
-                input: typeof flow.input === 'string' ? flow.input : flow.input ? flow.input.name : undefined,
-                sync_type: flow.sync_type as SyncType,
+                input: typeof flow.input === 'string' ? flow.input : null,
+                sync_type: flow.sync_type || null,
                 webhook_subscriptions: flow.webhookSubscriptions || [],
                 enabled: lastSyncWasEnabled && !shouldCap,
                 models_json_schema: jsonSchema ? flowJsonSchema : null,
@@ -897,7 +794,7 @@ async function compileDeployInfo({
 async function switchActiveSyncConfig(oldSyncConfigId: number): Promise<void> {
     await db.knex.transaction(async (trx) => {
         // mark sync config as inactive
-        await trx.from<SyncConfig>(TABLE).update({ active: false }).where({ id: oldSyncConfigId });
+        await trx.from<DBSyncConfig>(TABLE).update({ active: false }).where({ id: oldSyncConfigId });
 
         // update sync_config_id in syncs table to point to active sync config
         await trx.raw(

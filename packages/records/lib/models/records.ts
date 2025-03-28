@@ -1,7 +1,16 @@
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
-import { db } from '../db/client.js';
-import type { FormattedRecord, FormattedRecordWithMetadata, GetRecordsResponse, LastAction, RecordCount, ReturnedRecord, UpsertSummary } from '../types.js';
+import { db, dbRead } from '../db/client.js';
+import type {
+    CombinedFilterAction,
+    FormattedRecord,
+    FormattedRecordWithMetadata,
+    GetRecordsResponse,
+    LastAction,
+    RecordCount,
+    ReturnedRecord,
+    UpsertSummary
+} from '../types.js';
 import { decryptRecordData, encryptRecords } from '../utils/encryption.js';
 import { RECORDS_TABLE, RECORD_COUNTS_TABLE } from '../constants.js';
 import { removeDuplicateKey, getUniqueId } from '../helpers/uniqueKey.js';
@@ -41,20 +50,41 @@ export async function getRecordCountsByModel({
     }
 }
 
+export async function countMetric(): Promise<Result<{ environmentId: number; count: string }[]>> {
+    // Note: count is a string because pg returns bigint as string
+    try {
+        const res = await db
+            .from(RECORD_COUNTS_TABLE)
+            .sum('count as count')
+            .groupBy('environment_id')
+            .select<{ environmentId: number; count: string }[]>('environment_id as environmentId');
+
+        return Ok(res);
+    } catch {
+        const e = new Error(`Failed to count records`);
+        return Err(e);
+    }
+}
+
+/**
+ * Get Records is using the read replicas (when possible)
+ */
 export async function getRecords({
     connectionId,
     model,
     modifiedAfter,
     limit,
     filter,
-    cursor
+    cursor,
+    externalIds
 }: {
     connectionId: number;
     model: string;
-    modifiedAfter?: string;
-    limit?: number | string;
-    filter?: LastAction;
-    cursor?: string;
+    modifiedAfter?: string | undefined;
+    limit?: number | string | undefined;
+    filter?: CombinedFilterAction | LastAction | undefined;
+    cursor?: string | undefined;
+    externalIds?: string[] | undefined;
 }): Promise<Result<GetRecordsResponse>> {
     try {
         if (!model) {
@@ -62,7 +92,7 @@ export async function getRecords({
             return Err(error);
         }
 
-        let query = db
+        let query = dbRead
             .from<FormattedRecord>(RECORDS_TABLE)
             .timeout(60000) // timeout after 1 minute
             .where({
@@ -87,6 +117,12 @@ export async function getRecords({
                         .where('updated_at', '>', decodedCursor.sort)
                         .orWhere((builder) => void builder.where('updated_at', '=', decodedCursor.sort).andWhere('id', '>', decodedCursor.id))
             );
+        }
+
+        if (externalIds) {
+            // postgresql does not support null bytes in strings
+            const cleanIds = externalIds.map((id) => id.replaceAll('\x00', ''));
+            query = query.whereIn('external_id', cleanIds);
         }
 
         if (limit) {
@@ -284,6 +320,13 @@ export async function upsert({
                     });
                 };
 
+                interface UpsertResult {
+                    external_id: string;
+                    id: string;
+                    last_modified_at: string;
+                    status: 'inserted' | 'changed' | 'undeleted' | 'deleted' | 'unchanged';
+                }
+
                 // we need to know which records were updated, deleted, undeleted or unchanged
                 // we achieve this by comparing the records data_hash and deleted_at fields before and after the update
                 const externalIds = chunk.map((r) => r.external_id);
@@ -303,7 +346,7 @@ export async function upsert({
                             .returning(['id', 'external_id', 'data_hash', 'deleted_at', 'updated_at'])
                             .onConflict(['connection_id', 'external_id', 'model'])
                             .merge();
-                        if (merging.strategy === 'ignore_if_modified_after_cursor' && 'cursor' in merging) {
+                        if (merging.strategy === 'ignore_if_modified_after_cursor' && merging.cursor) {
                             const cursor = Cursor.from(merging.cursor);
                             if (cursor) {
                                 qb.whereRaw(`${RECORDS_TABLE}.updated_at < ?`, [cursor.sort]).orWhereRaw(
@@ -313,9 +356,7 @@ export async function upsert({
                             }
                         }
                     })
-                    .select<
-                        { external_id: string; id: string; last_modified_at: string; status: 'inserted' | 'changed' | 'undeleted' | 'deleted' | 'unchanged' }[]
-                    >(
+                    .select<UpsertResult[]>(
                         trx.raw(`
                             upsert.id as id,
                             upsert.external_id as external_id,
@@ -351,12 +392,23 @@ export async function upsert({
                     summary.updatedKeys.push(...updated);
                 }
 
-                const lastRecord = updatedRes[updatedRes.length - 1];
-                if (merging.strategy === 'ignore_if_modified_after_cursor' && lastRecord) {
-                    summary.nextMerging = {
-                        strategy: merging.strategy,
-                        cursor: Cursor.new(lastRecord)
+                if (merging.strategy === 'ignore_if_modified_after_cursor') {
+                    // Next cursor is the last MODIFIED record
+                    const getLastModifiedRecord = (records: UpsertResult[]): UpsertResult | undefined => {
+                        for (let i = records.length - 1; i >= 0; i--) {
+                            if (records[i]?.status !== 'unchanged') {
+                                return records[i];
+                            }
+                        }
+                        return undefined;
                     };
+                    const lastRecord = getLastModifiedRecord(updatedRes);
+                    if (lastRecord) {
+                        summary.nextMerging = {
+                            strategy: merging.strategy,
+                            cursor: Cursor.new(lastRecord)
+                        };
+                    }
                 }
             }
             const delta = summary.addedKeys.length - (summary.deletedKeys?.length ?? 0);
@@ -463,7 +515,7 @@ export async function update({
                                 .returning(['external_id', 'id', 'updated_at'])
                                 .onConflict(['connection_id', 'external_id', 'model'])
                                 .merge();
-                            if (merging.strategy === 'ignore_if_modified_after_cursor' && 'cursor' in merging) {
+                            if (merging.strategy === 'ignore_if_modified_after_cursor' && merging.cursor) {
                                 const cursor = Cursor.from(merging.cursor);
                                 if (cursor) {
                                     qb.whereRaw(`${RECORDS_TABLE}.updated_at < ?`, [cursor.sort]).orWhereRaw(
@@ -545,7 +597,7 @@ export async function deleteRecordsBySyncId({
             .from(RECORDS_TABLE)
             .where({ connection_id: connectionId, model })
             .whereIn('id', function (sub) {
-                void sub.select('id').from(RECORDS_TABLE).where({ connection_id: connectionId, model, sync_id: syncId }).limit(limit);
+                sub.select('id').from(RECORDS_TABLE).where({ connection_id: connectionId, model, sync_id: syncId }).limit(limit);
             })
             .del();
         totalDeletedRecords += deletedRecords;

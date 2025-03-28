@@ -1,6 +1,8 @@
 import type { NangoForwardWebhookBody, DBExternalWebhook, IntegrationConfig, DBTeam, DBEnvironment } from '@nangohq/types';
 import type { LogContextGetter } from '@nangohq/logs';
 import { deliver, shouldSend } from './utils.js';
+import { metrics } from '@nangohq/utils';
+import { OtlpSpan } from '@nangohq/logs';
 
 export const forwardWebhook = async ({
     integration,
@@ -37,6 +39,7 @@ export const forwardWebhook = async ({
             integration: { id: integration.id!, name: integration.unique_key, provider: integration.provider }
         }
     );
+    logCtx.attachSpan(new OtlpSpan(logCtx.operation));
 
     const body: NangoForwardWebhookBody = {
         from: integration.provider,
@@ -61,8 +64,10 @@ export const forwardWebhook = async ({
         });
 
         if (result.isOk()) {
+            metrics.increment(metrics.Types.WEBHOOK_INCOMING_FORWARDED_SUCCESS);
             await logCtx.success();
         } else {
+            metrics.increment(metrics.Types.WEBHOOK_INCOMING_FORWARDED_FAILED);
             await logCtx.failed();
         }
 
@@ -83,7 +88,10 @@ export const forwardWebhook = async ({
             incomingHeaders: webhookOriginalHeaders
         });
 
-        if (result.isErr()) {
+        if (result.isOk()) {
+            metrics.increment(metrics.Types.WEBHOOK_INCOMING_FORWARDED_SUCCESS);
+        } else {
+            metrics.increment(metrics.Types.WEBHOOK_INCOMING_FORWARDED_FAILED);
             success = false;
         }
     }

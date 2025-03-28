@@ -40,7 +40,11 @@ import type {
     GetPublicConnections,
     GetPublicConnection,
     PostConnectSessions,
-    PostPublicConnectSessionsReconnect
+    PostPublicConnectSessionsReconnect,
+    GetPublicRecords,
+    UserProvidedProxyConfiguration,
+    StandardNangoConfig,
+    NangoSyncConfig
 } from '@nangohq/types';
 
 export type {
@@ -87,8 +91,11 @@ export type {
     GetPublicConnections,
     GetPublicConnection,
     PostConnectSessions,
-    PostPublicConnectSessionsReconnect
+    PostPublicConnectSessionsReconnect,
+    GetPublicRecords
 };
+
+export type { StandardNangoConfig, NangoSyncConfig };
 
 export interface NangoProps {
     host?: string;
@@ -112,21 +119,10 @@ export interface CreateConnectionOAuth2 extends OAuth2Credentials {
     type: AuthModes['OAuth2'];
 }
 
-export interface ProxyConfiguration {
-    endpoint: string;
+export type ProxyConfiguration = Omit<UserProvidedProxyConfiguration, 'files' | 'providerConfigKey'> & {
     providerConfigKey?: string;
     connectionId?: string;
-
-    method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE' | 'get' | 'post' | 'patch' | 'put' | 'delete';
-    headers?: Record<string, string>;
-    params?: string | Record<string, string | number>;
-    data?: unknown;
-    retries?: number;
-    baseUrlOverride?: string;
-    decompress?: boolean | string;
-    responseType?: 'arraybuffer' | 'blob' | 'document' | 'json' | 'text' | 'stream';
-    retryOn?: number[] | null;
-}
+};
 
 export type FilterAction = 'added' | 'updated' | 'deleted' | 'ADDED' | 'UPDATED' | 'DELETED';
 export type CombinedFilterAction = `${FilterAction},${FilterAction}`;
@@ -135,6 +131,7 @@ export interface ListRecordsRequestConfig {
     providerConfigKey: string;
     connectionId: string;
     model: string;
+    variant?: string;
     /**
      * @deprecated use modifiedAfter
      */
@@ -143,6 +140,7 @@ export interface ListRecordsRequestConfig {
     limit?: number;
     filter?: FilterAction | CombinedFilterAction;
     cursor?: string | null;
+    ids?: string[];
 }
 
 export type Metadata = Record<string, unknown>;
@@ -218,14 +216,6 @@ export interface UpdateSyncFrequencyResponse {
     frequency: string;
 }
 
-export interface StandardNangoConfig {
-    providerConfigKey: string;
-    provider?: string;
-    syncs: NangoSyncConfig[];
-    actions: NangoSyncConfig[];
-    postConnectionScripts?: string[];
-}
-
 export enum SyncConfigType {
     SYNC = 'sync',
     ACTION = 'action'
@@ -240,28 +230,6 @@ export interface NangoSyncModel {
     name: string;
     description?: string;
     fields: NangoSyncModelField[];
-}
-
-export interface NangoSyncConfig {
-    name: string;
-    type?: SyncConfigType;
-    runs: string;
-    auto_start?: boolean;
-    attributes?: object;
-    description?: string;
-    scopes?: string[];
-    track_deletes?: boolean;
-    returns: string[];
-    models: NangoSyncModel[];
-    endpoints: NangoSyncEndpointV2[];
-    is_public?: boolean;
-    pre_built?: boolean;
-    version?: string | null;
-    last_deployed?: string | null;
-
-    input?: NangoSyncModel;
-    sync_type?: SyncType;
-    webhookSubscriptions?: string[];
 }
 
 export interface SyncResult {

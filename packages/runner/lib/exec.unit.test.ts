@@ -8,6 +8,7 @@ function getNangoProps(): NangoProps {
         host: 'http://localhost:3003',
         connectionId: 'connection-id',
         environmentId: 1,
+        environmentName: 'dev',
         providerConfigKey: 'provider-config-key',
         provider: 'provider',
         activityLogId: '1',
@@ -21,6 +22,7 @@ function getNangoProps(): NangoProps {
         syncConfig: {} as DBSyncConfig,
         debug: false,
         startedAt: new Date(),
+        team: { id: 1, name: 'dev' },
         runnerFlags: {
             validateActionInput: false,
             validateActionOutput: false,
@@ -267,6 +269,7 @@ describe('Exec', () => {
                     config: {
                         adapter: ['xhr', 'http', 'fetch'],
                         env: {},
+                        allowAbsoluteUrls: true,
                         headers: {
                             Accept: 'application/json, text/plain, */*',
                             'Accept-Encoding': 'gzip, compress, deflate, br',
@@ -278,6 +281,9 @@ describe('Exec', () => {
                         },
                         maxBodyLength: -1,
                         maxContentLength: -1,
+                        metadata: {
+                            startTime: expect.toBeIsoDate()
+                        },
                         method: 'get',
                         params: {
                             force_refresh: false,

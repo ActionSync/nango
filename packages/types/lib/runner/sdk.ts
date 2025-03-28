@@ -1,42 +1,32 @@
-import type { AxiosError, AxiosInterceptorManager, AxiosRequestConfig, AxiosResponse } from 'axios';
 import type { RunnerFlags } from '.';
-import type { Metadata } from '../connection/db';
-import type { DBTeam } from '../team/db';
 import type { DBSyncConfig } from '../syncConfigs/db';
-
-export interface RunArgs {
-    sync: string;
-    connectionId: string;
-    lastSyncDate?: string;
-    useServerLastSyncDate?: boolean;
-    input?: object;
-    metadata?: Metadata;
-    autoConfirm: boolean;
-    debug: boolean;
-    optionalEnvironment?: string;
-    optionalProviderConfigKey?: string;
-}
+import type { DBTeam } from '../team/db';
+import type { AxiosError, AxiosInterceptorManager, AxiosRequestConfig, AxiosResponse } from 'axios';
 
 export interface NangoProps {
     scriptType: 'sync' | 'action' | 'webhook' | 'on-event';
     host?: string;
     secretKey: string;
-    team?: Pick<DBTeam, 'id' | 'name'>;
+    team: Pick<DBTeam, 'id' | 'name'>;
     connectionId: string;
     environmentId: number;
-    environmentName?: string;
-    activityLogId?: string | undefined;
+    environmentName: string;
+    activityLogId: string;
     providerConfigKey: string;
     provider: string;
     lastSyncDate?: Date;
     syncId?: string | undefined;
-    nangoConnectionId?: number;
+    syncVariant?: string | undefined;
+    nangoConnectionId: number;
     syncJobId?: number | undefined;
     track_deletes?: boolean;
     attributes?: object | undefined;
     abortSignal?: AbortSignal;
     syncConfig: DBSyncConfig;
     runnerFlags: RunnerFlags;
+    /**
+     * @deprecated not used
+     */
     debug: boolean;
     startedAt: Date;
     endUser: { id: number; endUserId: string | null; orgId: string | null } | null;

@@ -77,14 +77,14 @@ export const BackendSettings: React.FC = () => {
     const hasNewSecretKey = environmentAndAccount.environment.pending_secret_key;
     return (
         <div className="text-grayscale-100 flex flex-col gap-10">
-            <div className="flex gap-2 items-center rounded-md bg-grayscale-900 px-8 h-10">
+            <Link className="flex gap-2 items-center rounded-md bg-grayscale-900 px-8 h-10" to="#backend" id="backend">
                 <div>
                     <IconServer stroke={1} size={18} />
                 </div>
                 <h3 className="uppercase text-sm">Backend Settings</h3>
-            </div>
+            </Link>
             <div className="px-8 flex flex-col gap-10 w-3/5">
-                <fieldset className="flex flex-col gap-2">
+                <fieldset className="flex flex-col gap-2.5">
                     <label htmlFor="secretKey" className="font-semibold mb-2">
                         Secret Key
                     </label>
@@ -104,9 +104,9 @@ export const BackendSettings: React.FC = () => {
                         />
                     </div>
                     {!hasNewSecretKey && (
-                        <div className="">
+                        <div className="flex justify-end">
                             <Button variant={'secondary'} onClick={onGenerate} isLoading={loading}>
-                                <IconKey stroke={1} />
+                                <IconKey stroke={1} size={18} />
                                 Generate new secret key
                             </Button>
                         </div>
@@ -126,12 +126,18 @@ export const BackendSettings: React.FC = () => {
                             />
                         </div>
                     )}
+                    {hasNewSecretKey && (
+                        <Info>
+                            The current secret is still active, the new secret is not. Confirm key rotation to activate new secret and deactivate current
+                            secret.
+                        </Info>
+                    )}
 
                     {hasNewSecretKey && (
-                        <div className="flex gap-2 justify-end">
+                        <div className="flex gap-3 justify-end">
                             <Dialog>
                                 <DialogTrigger asChild>
-                                    <Button variant={'emptyFaded'}>Cancel key rotation</Button>
+                                    <Button variant={'tertiary'}>Cancel key rotation</Button>
                                 </DialogTrigger>
 
                                 <DialogContent>
@@ -152,7 +158,7 @@ export const BackendSettings: React.FC = () => {
 
                             <Dialog>
                                 <DialogTrigger asChild>
-                                    <Button variant={'secondary'}>Confirm key rotation</Button>
+                                    <Button variant={'primary'}>Confirm key rotation</Button>
                                 </DialogTrigger>
 
                                 <DialogContent>
@@ -172,12 +178,6 @@ export const BackendSettings: React.FC = () => {
                             </Dialog>
                         </div>
                     )}
-                    {hasNewSecretKey && (
-                        <Info>
-                            The current secret is still active, the new secret is not. Confirm key rotation to activate new secret and deactivate current
-                            secret.
-                        </Info>
-                    )}
                 </fieldset>
 
                 <EditableInput
@@ -185,6 +185,7 @@ export const BackendSettings: React.FC = () => {
                     title="Callback URL"
                     placeholder="https://api.nango.dev/oauth/callback"
                     originalValue={environmentAndAccount.environment.callback_url}
+                    docs="https://docs.nango.dev/guides/api-authorization/configuration#2-create-an-integration"
                     editInfo={
                         <Info>
                             Changing the callback URL requires an active 308 redirect and updating the registered callback URL with all OAuth API providers.

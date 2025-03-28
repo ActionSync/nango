@@ -2,7 +2,7 @@
 import { vi, expect, describe, it, beforeEach } from 'vitest';
 import { sendSync } from './sync.js';
 import { axiosInstance } from '@nangohq/utils';
-import type { NangoSyncWebhookBodySuccess, Connection, DBExternalWebhook, DBEnvironment, DBTeam, DBSyncConfig, IntegrationConfig } from '@nangohq/types';
+import type { NangoSyncWebhookBodySuccess, DBExternalWebhook, DBEnvironment, DBTeam, DBSyncConfig, IntegrationConfig, ConnectionJobs } from '@nangohq/types';
 
 const spy = vi.spyOn(axiosInstance, 'post');
 
@@ -54,10 +54,11 @@ const syncConfig: DBSyncConfig = {
     updated_at: new Date()
 };
 
-const connection: Pick<Connection, 'id' | 'connection_id' | 'provider_config_key'> = {
+const connection: ConnectionJobs = {
     id: 1,
     connection_id: '1',
-    provider_config_key: 'providerkey'
+    provider_config_key: 'providerkey',
+    environment_id: 1
 };
 
 const webhookSettings: DBExternalWebhook = {
@@ -87,6 +88,7 @@ describe('Webhooks: sync notification tests', () => {
             environment: { name: 'dev', id: 1, secret_key: 'secret' } as DBEnvironment,
             providerConfig,
             syncConfig,
+            syncVariant: 'base',
             webhookSettings: {
                 ...webhookSettings,
                 primary_url: '',
@@ -110,6 +112,7 @@ describe('Webhooks: sync notification tests', () => {
             environment: { name: 'dev', id: 1, secret_key: 'secret' } as DBEnvironment,
             providerConfig,
             syncConfig,
+            syncVariant: 'base',
             model: 'model',
             responseResults,
             success: true,
@@ -133,6 +136,7 @@ describe('Webhooks: sync notification tests', () => {
             environment: { name: 'dev', id: 1, secret_key: 'secret' } as DBEnvironment,
             providerConfig,
             syncConfig,
+            syncVariant: 'base',
             model: 'model',
             responseResults,
             operation: 'INCREMENTAL',
@@ -155,6 +159,7 @@ describe('Webhooks: sync notification tests', () => {
             environment: { name: 'dev', id: 1, secret_key: 'secret' } as DBEnvironment,
             providerConfig,
             syncConfig,
+            syncVariant: 'base',
             model: 'model',
             responseResults,
             operation: 'INCREMENTAL',
@@ -177,6 +182,7 @@ describe('Webhooks: sync notification tests', () => {
             environment: { name: 'dev', id: 1, secret_key: 'secret' } as DBEnvironment,
             providerConfig,
             syncConfig,
+            syncVariant: 'base',
             model: 'model',
             responseResults,
             operation: 'INCREMENTAL',
@@ -199,6 +205,7 @@ describe('Webhooks: sync notification tests', () => {
             environment: { name: 'dev', id: 1, secret_key: 'secret' } as DBEnvironment,
             providerConfig,
             syncConfig,
+            syncVariant: 'base',
             model: 'model',
             responseResults,
             operation: 'INCREMENTAL',
@@ -221,6 +228,7 @@ describe('Webhooks: sync notification tests', () => {
             environment: { name: 'dev', id: 1, secret_key: 'secret' } as DBEnvironment,
             providerConfig,
             syncConfig,
+            syncVariant: 'base',
             model: 'model',
             responseResults,
             operation: 'INCREMENTAL',
@@ -244,6 +252,7 @@ describe('Webhooks: sync notification tests', () => {
             environment: { name: 'dev', id: 1, secret_key: 'secret' } as DBEnvironment,
             providerConfig,
             syncConfig,
+            syncVariant: 'base',
             model: 'model',
             responseResults,
             operation: 'INCREMENTAL',
@@ -261,6 +270,7 @@ describe('Webhooks: sync notification tests', () => {
             responseResults,
             connectionId: connection.connection_id,
             syncName: 'a_sync',
+            syncVariant: 'base',
             providerConfigKey: connection.provider_config_key,
             success: true,
             syncType: 'INCREMENTAL'
@@ -302,6 +312,7 @@ describe('Webhooks: sync notification tests', () => {
             environment: { name: 'dev', id: 1, secret_key: 'secret' } as DBEnvironment,
             providerConfig,
             syncConfig,
+            syncVariant: 'base',
             model: 'model',
             success: false,
             error,
@@ -328,6 +339,7 @@ describe('Webhooks: sync notification tests', () => {
             environment: { name: 'dev', id: 1, secret_key: 'secret' } as DBEnvironment,
             providerConfig,
             syncConfig,
+            syncVariant: 'base',
             model: 'model',
             success: false,
             error,

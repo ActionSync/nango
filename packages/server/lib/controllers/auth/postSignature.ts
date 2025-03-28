@@ -1,7 +1,7 @@
 import type { NextFunction } from 'express';
 import { z } from 'zod';
 import { asyncWrapper } from '../../utils/asyncWrapper.js';
-import { zodErrorToHTTP, stringifyError } from '@nangohq/utils';
+import { zodErrorToHTTP, stringifyError, metrics } from '@nangohq/utils';
 import {
     analytics,
     configService,
@@ -14,14 +14,14 @@ import {
     getProvider,
     linkConnection
 } from '@nangohq/shared';
-import type { MessageRowInsert, PostPublicSignatureAuthorization, ProviderSignature } from '@nangohq/types';
+import type { PostPublicSignatureAuthorization, ProviderSignature } from '@nangohq/types';
 import type { LogContext } from '@nangohq/logs';
-import { defaultOperationExpiration, flushLogsBuffer, logContextGetter } from '@nangohq/logs';
+import { defaultOperationExpiration, endUserToMeta, logContextGetter } from '@nangohq/logs';
 import { hmacCheck } from '../../utils/hmac.js';
 import {
     connectionCreated as connectionCreatedHook,
     connectionCreationFailed as connectionCreationFailedHook,
-    connectionTest as connectionTestHook
+    testConnectionCredentials
 } from '../../hooks/hooks.js';
 import { connectionCredential, connectionIdSchema, providerConfigKeySchema } from '../../helpers/validation.js';
 import db from '@nangohq/database';
@@ -74,7 +74,7 @@ export const postPublicSignatureAuthorization = asyncWrapper<PostPublicSignature
         return;
     }
 
-    const { account, environment } = res.locals;
+    const { account, environment, connectSession } = res.locals;
     const { username, password }: PostPublicSignatureAuthorization['Body'] = val.data;
     const queryString: PostPublicSignatureAuthorization['Querystring'] = queryStringVal.data;
     const { providerConfigKey }: PostPublicSignatureAuthorization['Params'] = paramsVal.data;
@@ -91,14 +91,17 @@ export const postPublicSignatureAuthorization = asyncWrapper<PostPublicSignature
     let logCtx: LogContext | undefined;
 
     try {
-        logCtx = await logContextGetter.create(
-            {
-                operation: { type: 'auth', action: 'create_connection' },
-                meta: { authType: 'signature' },
-                expiresAt: defaultOperationExpiration.auth()
-            },
-            { account, environment }
-        );
+        logCtx =
+            isConnectSession && connectSession.operationId
+                ? await logContextGetter.get({ id: connectSession.operationId, accountId: account.id })
+                : await logContextGetter.create(
+                      {
+                          operation: { type: 'auth', action: 'create_connection' },
+                          meta: { authType: 'signature', connectSession: endUserToMeta(res.locals.endUser) },
+                          expiresAt: defaultOperationExpiration.auth()
+                      },
+                      { account, environment }
+                  );
         void analytics.track(AnalyticsTypes.PRE_SIGNATURE_AUTH, account.id);
 
         if (!isConnectSession) {
@@ -110,7 +113,7 @@ export const postPublicSignatureAuthorization = asyncWrapper<PostPublicSignature
 
         const config = await configService.getProviderConfig(providerConfigKey, environment.id);
         if (!config) {
-            await logCtx.error('Unknown provider config');
+            void logCtx.error('Unknown provider config');
             await logCtx.failed();
             res.status(404).send({ error: { code: 'unknown_provider_config' } });
             return;
@@ -118,14 +121,14 @@ export const postPublicSignatureAuthorization = asyncWrapper<PostPublicSignature
 
         const provider = getProvider(config.provider);
         if (!provider) {
-            await logCtx.error('Unknown provider');
+            void logCtx.error('Unknown provider');
             await logCtx.failed();
             res.status(404).send({ error: { code: 'unknown_provider_template' } });
             return;
         }
 
         if (provider.auth_mode !== 'SIGNATURE') {
-            await logCtx.error('Provider does not support SIGNATURE auth', { provider: config.provider });
+            void logCtx.error('Provider does not support SIGNATURE auth', { provider: config.provider });
             await logCtx.failed();
             res.status(400).send({ error: { code: 'invalid_auth_mode' } });
             return;
@@ -136,10 +139,10 @@ export const postPublicSignatureAuthorization = asyncWrapper<PostPublicSignature
         }
 
         // Reconnect mechanism
-        if (isConnectSession && res.locals.connectSession.connectionId) {
-            const connection = await connectionService.getConnectionById(res.locals.connectSession.connectionId);
+        if (isConnectSession && connectSession.connectionId) {
+            const connection = await connectionService.getConnectionById(connectSession.connectionId);
             if (!connection) {
-                await logCtx.error('Invalid connection');
+                void logCtx.error('Invalid connection');
                 await logCtx.failed();
                 res.status(400).send({ error: { code: 'invalid_connection' } });
                 return;
@@ -152,7 +155,7 @@ export const postPublicSignatureAuthorization = asyncWrapper<PostPublicSignature
         const { success, error, response: credentials } = connectionService.getSignatureCredentials(provider as ProviderSignature, username, password);
 
         if (!success || !credentials) {
-            await logCtx.error('Error during Signature credentials creation', { error, provider: config.provider });
+            void logCtx.error('Error during Signature credentials creation', { error, provider: config.provider });
             await logCtx.failed();
 
             errorManager.errRes(res, 'signature_error');
@@ -160,20 +163,15 @@ export const postPublicSignatureAuthorization = asyncWrapper<PostPublicSignature
             return;
         }
 
-        const connectionResponse = await connectionTestHook({ config, connectionConfig, connectionId, credentials, provider });
+        const connectionResponse = await testConnectionCredentials({ config, connectionConfig, connectionId, credentials, provider, logCtx });
         if (connectionResponse.isErr()) {
-            if ('logs' in connectionResponse.error.payload) {
-                await flushLogsBuffer(connectionResponse.error.payload['logs'] as MessageRowInsert[], logCtx);
-            }
-            await logCtx.error('Provided credentials are invalid', { provider: config.provider });
+            void logCtx.error('Provided credentials are invalid');
             await logCtx.failed();
 
             errorManager.errResFromNangoErr(res, connectionResponse.error);
 
             return;
         }
-
-        await flushLogsBuffer(connectionResponse.value.logs, logCtx);
 
         const [updatedConnection] = await connectionService.upsertAuthConnection({
             connectionId,
@@ -187,18 +185,17 @@ export const postPublicSignatureAuthorization = asyncWrapper<PostPublicSignature
         });
         if (!updatedConnection) {
             res.status(500).send({ error: { code: 'server_error', message: 'failed to create connection' } });
-            await logCtx.error('Failed to create connection');
+            void logCtx.error('Failed to create connection');
             await logCtx.failed();
             return;
         }
 
         if (isConnectSession) {
-            const session = res.locals.connectSession;
-            await linkConnection(db.knex, { endUserId: session.endUserId, connection: updatedConnection.connection });
+            await linkConnection(db.knex, { endUserId: connectSession.endUserId, connection: updatedConnection.connection });
         }
 
-        await logCtx.enrichOperation({ connectionId: updatedConnection.connection.id!, connectionName: updatedConnection.connection.connection_id });
-        await logCtx.info('Signature connection creation was successful');
+        await logCtx.enrichOperation({ connectionId: updatedConnection.connection.id, connectionName: updatedConnection.connection.connection_id });
+        void logCtx.info('Signature connection creation was successful');
         await logCtx.success();
 
         void connectionCreatedHook(
@@ -210,11 +207,12 @@ export const postPublicSignatureAuthorization = asyncWrapper<PostPublicSignature
                 operation: updatedConnection.operation,
                 endUser: isConnectSession ? res.locals['endUser'] : undefined
             },
-            config.provider,
-            logContextGetter,
-            undefined,
-            logCtx
+            account,
+            config,
+            logContextGetter
         );
+
+        metrics.increment(metrics.Types.AUTH_SUCCESS, 1, { auth_mode: provider.auth_mode });
 
         res.status(200).send({ providerConfigKey, connectionId });
     } catch (err) {
@@ -232,11 +230,10 @@ export const postPublicSignatureAuthorization = asyncWrapper<PostPublicSignature
                 },
                 operation: 'unknown'
             },
-            'unknown',
-            logCtx
+            account
         );
         if (logCtx) {
-            await logCtx.error('Error during Signature credentials creation', { error: err });
+            void logCtx.error('Error during Signature credentials creation', { error: err });
             await logCtx.failed();
         }
 
@@ -246,6 +243,8 @@ export const postPublicSignatureAuthorization = asyncWrapper<PostPublicSignature
             environmentId: environment.id,
             metadata: { providerConfigKey, connectionId }
         });
+
+        metrics.increment(metrics.Types.AUTH_FAILURE, 1, { auth_mode: 'SIGNATURE' });
 
         next(err);
     }

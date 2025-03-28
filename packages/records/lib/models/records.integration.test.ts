@@ -217,6 +217,115 @@ describe('Records service', () => {
                     }
                 });
             });
+            it('when strategy = ignore_if_modified_after_cursor and saving same record', async () => {
+                const environmentId = rnd.number();
+                const connectionId = 1;
+                const model = 'my-model';
+                const syncId = uuid.v4();
+                const records = [
+                    { id: '1', name: 'John Doe' },
+                    { id: '2', name: 'Jane Doe' },
+                    { id: '3', name: 'Max Doe' }
+                ];
+                // insert initial records
+                const inserted = await upsertRecords({
+                    records,
+                    connectionId,
+                    environmentId,
+                    model,
+                    syncId,
+                    syncJobId: 1,
+                    merging: {
+                        strategy: 'ignore_if_modified_after_cursor'
+                    }
+                });
+
+                // upsert records with the same values
+                const sameRecords = [
+                    { id: '1', name: 'John Doe' }, // same
+                    { id: '2', name: 'Jane Doe' } // same
+                ];
+                const result1 = await upsertRecords({
+                    records: sameRecords,
+                    connectionId,
+                    environmentId,
+                    model,
+                    syncId,
+                    syncJobId: 2,
+                    merging: inserted.nextMerging
+                });
+
+                expect(result1).toStrictEqual({
+                    addedKeys: [],
+                    updatedKeys: [],
+                    deletedKeys: [],
+                    nonUniqueKeys: [],
+                    nextMerging: {
+                        strategy: 'ignore_if_modified_after_cursor',
+                        cursor: (await Records.getCursor({ connectionId, model, offset: 'last' })).unwrap()
+                    }
+                });
+
+                // upsert records with new values
+                const modifiedRecords = [
+                    { id: '3', name: 'Matt Doe' } // NOT the same
+                ];
+                const result2 = await upsertRecords({
+                    records: modifiedRecords,
+                    connectionId,
+                    environmentId,
+                    model,
+                    syncId,
+                    syncJobId: 2,
+                    merging: result1.nextMerging
+                });
+
+                expect(result2).toStrictEqual({
+                    addedKeys: [],
+                    updatedKeys: ['3'],
+                    deletedKeys: [],
+                    nonUniqueKeys: [],
+                    nextMerging: {
+                        strategy: 'ignore_if_modified_after_cursor',
+                        cursor: (await Records.getCursor({ connectionId, model, offset: 'last' })).unwrap()
+                    }
+                });
+            });
+        });
+
+        it('Should return correct added records count when upserting concurrently', async () => {
+            const connectionId = rnd.number();
+            const environmentId = rnd.number();
+            const model = rnd.string();
+            const records = formatRecords({
+                data: [{ id: '1', name: 'John Doe' }],
+                connectionId,
+                model,
+                syncId: '00000000-0000-0000-0000-000000000000',
+                syncJobId: 1,
+                softDelete: false
+            }).unwrap();
+
+            // upserting the same record concurrently
+            const res = (
+                await Promise.all([
+                    Records.upsert({ records, connectionId, environmentId, model }),
+                    Records.upsert({ records, connectionId, environmentId, model }),
+                    Records.upsert({ records, connectionId, environmentId, model }),
+                    Records.upsert({ records, connectionId, environmentId, model }),
+                    Records.upsert({ records, connectionId, environmentId, model })
+                ])
+            ).map((r) => r.unwrap());
+            const agg = res.reduce((acc, curr) => {
+                return {
+                    addedKeys: acc.addedKeys.concat(curr.addedKeys),
+                    updatedKeys: acc.updatedKeys.concat(curr.updatedKeys),
+                    deletedKeys: (acc.deletedKeys || []).concat(curr.deletedKeys || []),
+                    nonUniqueKeys: acc.nonUniqueKeys.concat(curr.nonUniqueKeys),
+                    nextMerging: curr.nextMerging
+                };
+            });
+            expect(agg).toStrictEqual({ addedKeys: ['1'], updatedKeys: [], deletedKeys: [], nonUniqueKeys: [], nextMerging: { strategy: 'override' } });
         });
     });
 
@@ -431,134 +540,137 @@ describe('Records service', () => {
         expect(res2).toStrictEqual({ addedKeys: [], updatedKeys: [], deletedKeys: [], nonUniqueKeys: [], nextMerging: { strategy: 'override' } });
     });
 
-    it('Should retrieve records', async () => {
-        const n = 10;
-        const { connectionId, model } = await upsertNRecords(n);
-        const response = await Records.getRecords({ connectionId, model });
-        if (response.isErr()) {
-            throw new Error('Response is undefined');
-        }
-        const { records, next_cursor } = response.value;
-        expect(records.length).toBe(n);
-        expect(records[0]?.['_nango_metadata']).toMatchObject({
-            first_seen_at: expect.toBeIsoDateTimezone(),
-            last_modified_at: expect.toBeIsoDateTimezone(),
-            last_action: 'ADDED',
-            deleted_at: null,
-            cursor: expect.stringMatching(/^[A-Za-z0-9+/]+={0,2}$/) // base64 encoded string
+    describe('getRecords', () => {
+        it('Should retrieve records', async () => {
+            const n = 10;
+            const { connectionId, model } = await upsertNRecords(n);
+            const response = await Records.getRecords({ connectionId, model });
+            if (response.isErr()) {
+                throw new Error('Response is undefined');
+            }
+            const { records, next_cursor } = response.value;
+            expect(records.length).toBe(n);
+            expect(records[0]?.['_nango_metadata']).toMatchObject({
+                first_seen_at: expect.toBeIsoDateTimezone(),
+                last_modified_at: expect.toBeIsoDateTimezone(),
+                last_action: 'ADDED',
+                deleted_at: null,
+                cursor: expect.stringMatching(/^[A-Za-z0-9+/]+={0,2}$/) // base64 encoded string
+            });
+            expect(next_cursor).toBe(null); // no next page
         });
-        expect(next_cursor).toBe(null); // no next page
-    });
-    it('Should paginate the records to retrieve all records', async () => {
-        const numOfRecords = 3000;
-        const limit = 100;
-        const { connectionId, model } = await upsertNRecords(numOfRecords);
 
-        let cursor: string | undefined | null = null;
-        const allFetchedRecords = [];
-        do {
+        it('Should paginate the records to retrieve all records', async () => {
+            const numOfRecords = 3000;
+            const limit = 100;
+            const { connectionId, model } = await upsertNRecords(numOfRecords);
+
+            let cursor: string | undefined | null = null;
+            const allFetchedRecords = [];
+            do {
+                const response = await Records.getRecords({
+                    connectionId,
+                    model,
+                    limit,
+                    ...(cursor && { cursor })
+                });
+
+                if (response.isErr() || !response.value) {
+                    throw new Error('Fail to fetch records');
+                }
+
+                const { records, next_cursor } = response.value;
+
+                allFetchedRecords.push(...records);
+
+                cursor = next_cursor;
+
+                expect(records).not.toBe(undefined);
+                expect(records?.length).toBeLessThanOrEqual(limit);
+            } while (cursor);
+
+            for (let i = 1; i < allFetchedRecords.length; i++) {
+                const currentRecordDate = dayjs(allFetchedRecords[i]?._nango_metadata.first_seen_at);
+                const previousRecordDate = dayjs(allFetchedRecords[i - 1]?._nango_metadata.first_seen_at);
+
+                expect(currentRecordDate.isAfter(previousRecordDate) || currentRecordDate.isSame(previousRecordDate)).toBe(true);
+            }
+            expect(allFetchedRecords.length).toBe(numOfRecords);
+        });
+
+        it('Should retrieve records by external_id', async () => {
+            const { connectionId, model } = await upsertNRecords(10);
+
             const response = await Records.getRecords({
                 connectionId,
                 model,
-                limit,
-                ...(cursor && { cursor })
+                externalIds: ['1', '3', '5']
             });
 
-            if (response.isErr() || !response.value) {
-                throw new Error('Fail to fetch records');
-            }
+            expect(response.isOk()).toBe(true);
+            const { records } = response.unwrap();
 
-            const { records, next_cursor } = response.value;
-
-            allFetchedRecords.push(...records);
-
-            cursor = next_cursor;
-
-            expect(records).not.toBe(undefined);
-            expect(records?.length).toBeLessThanOrEqual(limit);
-        } while (cursor);
-
-        for (let i = 1; i < allFetchedRecords.length; i++) {
-            const currentRecordDate = dayjs(allFetchedRecords[i]?._nango_metadata.first_seen_at);
-            const previousRecordDate = dayjs(allFetchedRecords[i - 1]?._nango_metadata.first_seen_at);
-
-            expect(currentRecordDate.isAfter(previousRecordDate) || currentRecordDate.isSame(previousRecordDate)).toBe(true);
-        }
-        expect(allFetchedRecords.length).toBe(numOfRecords);
-    });
-
-    it('Should be able to retrieve 20K records in under 5s with a cursor', async () => {
-        const numOfRecords = 20000;
-        const limit = 1000;
-        const { connectionId, model } = await upsertNRecords(numOfRecords);
-
-        let cursor: string | undefined | null = null;
-        let allRecordsLength = 0;
-
-        const startTime = Date.now();
-        do {
-            const response = await Records.getRecords({
-                connectionId,
-                model,
-                limit,
-                ...(cursor && { cursor })
-            });
-
-            if (response.isErr() || !response.value) {
-                throw new Error('Error fetching records');
-            }
-
-            const { records, next_cursor } = response.value;
-
-            allRecordsLength += records.length;
-
-            cursor = next_cursor;
-
-            expect(records).not.toBe(undefined);
-            expect(records?.length).toBeLessThanOrEqual(limit);
-        } while (cursor);
-
-        const endTime = Date.now();
-
-        const runTime = endTime - startTime;
-        expect(runTime).toBeLessThan(5000);
-
-        expect(allRecordsLength).toBe(numOfRecords);
-    });
-
-    it('Should return correct added records count when upserting concurrently', async () => {
-        const connectionId = rnd.number();
-        const environmentId = rnd.number();
-        const model = rnd.string();
-        const records = formatRecords({
-            data: [{ id: '1', name: 'John Doe' }],
-            connectionId,
-            model,
-            syncId: '00000000-0000-0000-0000-000000000000',
-            syncJobId: 1,
-            softDelete: false
-        }).unwrap();
-
-        // upserting the same record concurrently
-        const res = (
-            await Promise.all([
-                Records.upsert({ records, connectionId, environmentId, model }),
-                Records.upsert({ records, connectionId, environmentId, model }),
-                Records.upsert({ records, connectionId, environmentId, model }),
-                Records.upsert({ records, connectionId, environmentId, model }),
-                Records.upsert({ records, connectionId, environmentId, model })
-            ])
-        ).map((r) => r.unwrap());
-        const agg = res.reduce((acc, curr) => {
-            return {
-                addedKeys: acc.addedKeys.concat(curr.addedKeys),
-                updatedKeys: acc.updatedKeys.concat(curr.updatedKeys),
-                deletedKeys: (acc.deletedKeys || []).concat(curr.deletedKeys || []),
-                nonUniqueKeys: acc.nonUniqueKeys.concat(curr.nonUniqueKeys),
-                nextMerging: curr.nextMerging
-            };
+            expect(records.length).toBe(3);
+            expect(records).toContainEqual(expect.objectContaining({ id: '1' }));
+            expect(records).toContainEqual(expect.objectContaining({ id: '3' }));
+            expect(records).toContainEqual(expect.objectContaining({ id: '5' }));
         });
-        expect(agg).toStrictEqual({ addedKeys: ['1'], updatedKeys: [], deletedKeys: [], nonUniqueKeys: [], nextMerging: { strategy: 'override' } });
+
+        it('should filter out 0x00 in ids', async () => {
+            const connectionId = rnd.number();
+            const environmentId = rnd.number();
+            const model = rnd.string();
+            const syncId = uuid.v4();
+            const toInsert = [{ id: '1', name: 'John Doe' }];
+            await upsertRecords({ records: toInsert, connectionId, environmentId, model, syncId });
+
+            const response = await Records.getRecords({ connectionId, model, externalIds: ['\x001'] });
+
+            expect(response.isOk()).toBe(true);
+            const { records } = response.unwrap();
+
+            expect(records.length).toBe(1);
+            expect(records).toContainEqual(expect.objectContaining({ id: '1', name: 'John Doe' }));
+        });
+
+        it('Should be able to retrieve 20K records in under 5s with a cursor', async () => {
+            const numOfRecords = 20000;
+            const limit = 1000;
+            const { connectionId, model } = await upsertNRecords(numOfRecords);
+
+            let cursor: string | undefined | null = null;
+            let allRecordsLength = 0;
+
+            const startTime = Date.now();
+            do {
+                const response = await Records.getRecords({
+                    connectionId,
+                    model,
+                    limit,
+                    ...(cursor && { cursor })
+                });
+
+                if (response.isErr() || !response.value) {
+                    throw new Error('Error fetching records');
+                }
+
+                const { records, next_cursor } = response.value;
+
+                allRecordsLength += records.length;
+
+                cursor = next_cursor;
+
+                expect(records).not.toBe(undefined);
+                expect(records?.length).toBeLessThanOrEqual(limit);
+            } while (cursor);
+
+            const endTime = Date.now();
+
+            const runTime = endTime - startTime;
+            expect(runTime).toBeLessThan(5000);
+
+            expect(allRecordsLength).toBe(numOfRecords);
+        });
     });
 });
 

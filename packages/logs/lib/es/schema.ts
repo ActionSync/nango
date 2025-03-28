@@ -1,8 +1,8 @@
 import type { estypes } from '@elastic/elasticsearch';
-import type { MessageRow } from '@nangohq/types';
+import type { MessageRow, OperationRow } from '@nangohq/types';
 import { envs } from '../env.js';
 
-const props: Record<keyof MessageRow, estypes.MappingProperty> = {
+const props: Record<keyof MessageRow | keyof OperationRow, estypes.MappingProperty> = {
     id: { type: 'keyword' },
 
     parentId: { type: 'keyword' },
@@ -37,6 +37,8 @@ const props: Record<keyof MessageRow, estypes.MappingProperty> = {
             }
         }
     },
+    endUserId: { type: 'keyword' },
+    endUserName: { type: 'keyword' },
 
     syncConfigId: { type: 'keyword' },
     syncConfigName: {
@@ -62,10 +64,9 @@ const props: Record<keyof MessageRow, estypes.MappingProperty> = {
     },
 
     type: { type: 'keyword' },
-    title: { type: 'keyword' },
     level: { type: 'keyword' },
     state: { type: 'keyword' },
-    code: { type: 'keyword' },
+    context: { type: 'keyword' },
 
     source: { type: 'keyword' },
 
@@ -80,12 +81,17 @@ const props: Record<keyof MessageRow, estypes.MappingProperty> = {
             headers: { type: 'object', enabled: false }
         }
     },
-
     response: {
         properties: {
             code: { type: 'integer' },
-            headers: { type: 'object', enabled: false },
-            body: { type: 'keyword', index: false, doc_values: false }
+            headers: { type: 'object', enabled: false }
+        }
+    },
+    retry: {
+        properties: {
+            max: { type: 'integer' },
+            attempt: { type: 'integer' },
+            waited: { type: 'integer' }
         }
     },
 
@@ -93,7 +99,8 @@ const props: Record<keyof MessageRow, estypes.MappingProperty> = {
     updatedAt: { type: 'date' },
     startedAt: { type: 'date' },
     expiresAt: { type: 'date' },
-    endedAt: { type: 'date' }
+    endedAt: { type: 'date' },
+    durationMs: { type: 'integer' }
 };
 
 export function getDailyIndexPipeline(name: string): estypes.IngestPutPipelineRequest {
@@ -142,7 +149,8 @@ export const indexMessages: estypes.IndicesCreateRequest = {
             'sort.field': ['createdAt', 'id'],
             'sort.order': ['desc', 'desc']
         },
-        number_of_shards: 10 // Made up number until we figured out a better strategy
+        // They are recommending 1 shard per 20gb-40gb
+        number_of_shards: envs.NANGO_LOGS_ES_SHARD_PER_DAY
     },
     mappings: {
         _source: { enabled: true },

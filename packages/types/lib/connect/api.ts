@@ -7,10 +7,13 @@ export interface ConnectSessionInput {
               string,
               {
                   user_scopes?: string | undefined;
-                  connection_config: {
-                      [key: string]: unknown;
-                      oauth_scopes_override?: string | undefined;
-                  };
+                  authorization_params?: Record<string, string> | undefined;
+                  connection_config?:
+                      | {
+                            [key: string]: unknown;
+                            oauth_scopes_override?: string | undefined;
+                        }
+                      | undefined;
               }
           >
         | undefined;
@@ -78,5 +81,33 @@ export type PostInternalConnectSessions = Endpoint<{
     Method: 'POST';
     Path: '/api/v1/connect/sessions';
     Success: PostConnectSessions['Success'];
-    Body: Pick<ConnectSessionInput, 'allowed_integrations' | 'end_user' | 'organization'>;
+    Body: Pick<ConnectSessionInput, 'allowed_integrations' | 'end_user' | 'organization' | 'integrations_config_defaults'>;
+}>;
+
+export type PostPublicConnectTelemetry = Endpoint<{
+    Method: 'POST';
+    Path: '/connect/telemetry';
+    Body: {
+        token: string;
+        event:
+            | 'open'
+            | 'view:list'
+            | 'view:integration'
+            | 'view:unknown_error'
+            | 'view:credentials_error'
+            | 'view:success'
+            | 'click:integration'
+            | 'click:doc'
+            | 'click:doc_section'
+            | 'click:connect'
+            | 'click:close'
+            | 'click:finish'
+            | 'click:outside'
+            | 'popup:blocked_by_browser'
+            | 'popup:closed_early';
+        timestamp: Date;
+        dimensions?: { integration?: string | undefined } | undefined;
+    };
+    // We use sendBeacon, it expects no response
+    Success: never;
 }>;

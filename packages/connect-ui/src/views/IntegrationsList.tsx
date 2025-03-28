@@ -4,8 +4,7 @@ import { QueryErrorResetBoundary, useSuspenseQuery } from '@tanstack/react-query
 import { useNavigate } from '@tanstack/react-router';
 import { Suspense, useEffect, useState } from 'react';
 import { ErrorBoundary } from 'react-error-boundary';
-
-import type { ApiPublicIntegration, GetPublicProvider } from '@nangohq/types';
+import { useEffectOnce } from 'react-use';
 
 import { ErrorFallback } from '@/components/ErrorFallback';
 import { LoadingView } from '@/components/LoadingView';
@@ -13,7 +12,10 @@ import { Button } from '@/components/ui/button';
 import { APIError, getIntegrations, getProvider } from '@/lib/api';
 import { triggerClose } from '@/lib/events';
 import { useGlobal } from '@/lib/store';
+import { telemetry } from '@/lib/telemetry';
 import NoIntegrationSVG from '@/svg/nointegrations.svg?react';
+
+import type { ApiPublicIntegration, GetPublicProvider } from '@nangohq/types';
 
 export const IntegrationsList: React.FC = () => {
     return (
@@ -49,6 +51,13 @@ const Integrations: React.FC = () => {
         }
     }, [data, store.session]);
 
+    useEffectOnce(() => {
+        if (isSingleIntegration) {
+            return;
+        }
+        telemetry('view:list');
+    });
+
     if (data.data.length <= 0) {
         return (
             <main className="h-full overflow-auto m-9 p-1">
@@ -59,7 +68,7 @@ const Integrations: React.FC = () => {
                         <h1 className="text-xl font-semibold">No integration found.</h1>
                     </div>
 
-                    <Button title="Close UI" onClick={() => triggerClose()}>
+                    <Button title="Close UI" onClick={() => triggerClose('click:close')}>
                         Close
                     </Button>
                 </div>
@@ -75,7 +84,7 @@ const Integrations: React.FC = () => {
         <>
             <header className="relative m-10">
                 <div className="absolute top-0 left-0 w-full flex justify-end">
-                    <Button size={'icon'} title="Close UI" variant={'transparent'} onClick={() => triggerClose()}>
+                    <Button size={'icon'} title="Close UI" variant={'transparent'} onClick={() => triggerClose('click:close')}>
                         <IconX stroke={1} />
                     </Button>
                 </div>
@@ -121,6 +130,7 @@ const Integration: React.FC<{ integration: ApiPublicIntegration }> = ({ integrat
             return;
         }
 
+        telemetry('click:integration', { integration: integration.unique_key });
         store.set(provider.data, integration);
         setLoading(false);
         await navigate({ to: '/go' });
