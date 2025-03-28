@@ -646,7 +646,7 @@ class AuthorizationModal {
     private debug: boolean;
     private wsClientId: string | undefined;
     private errorHandler: ErrorHandler;
-    public modal: any; // changed the type since we dont have a Window type for our open method
+    public modal: Window | undefined; // Reverted to Window type
     public isProcessingMessage = false;
 
     constructor(
@@ -758,7 +758,7 @@ class AuthorizationModal {
             return;
         }
 
-        const popup = open(this.url + '&ws_client_id=' + this.wsClientId); // This open method needs to be imported on top from @tauri-apps/plugin-shell
+        const popup = window.open(this.url + '&ws_client_id=' + this.wsClientId); // Reverted back to web window usage
 
         if (!popup || popup.closed || typeof popup.closed == 'undefined') {
             this.errorHandler('blocked_by_browser', 'Modal blocked by browser');
